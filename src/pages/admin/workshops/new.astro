@@ -1,0 +1,113 @@
+---
+import AdminLayout from '../../../layouts/AdminLayout.astro';
+import { requireAdmin } from '../../../lib/auth';
+import { makeAuthenticatedClient, getCurrentUser } from '../../../lib/supabase';
+
+const gate = await requireAdmin(Astro);
+if (gate instanceof Response) return gate;
+
+const client = makeAuthenticatedClient(Astro);
+const user = gate.user;
+
+// Courses not already wrapped in a workshop, and content_type = 'workshop'
+const { data: existingWorkshops } = await client.from('lms_workshops').select('course_id');
+const usedIds = new Set((existingWorkshops || []).map((w: any) => w.course_id));
+
+const { data: candidates } = await client
+  .from('lms_courses')
+  .select('id, slug, title, content_type')
+  .eq('content_type', 'workshop')
+  .order('title');
+
+const available = (candidates || []).filter((c: any) => !usedIds.has(c.id));
+
+const url = Astro.url;
+const error = url.searchParams.get('error');
+
+// Default starts_at: tomorrow 9am UTC
+const tomorrow = new Date();
+tomorrow.setDate(tomorrow.getDate() + 1);
+tomorrow.setHours(9, 0, 0, 0);
+const defaultStarts = tomorrow.toISOString().slice(0, 16);
+
+function fmtLocal(s: string): string {
+  // For <input type="datetime-local"> we need YYYY-MM-DDTHH:mm
+  return new Date(s).toISOString().slice(0, 16);
+}
+---
+<AdminLayout title="New workshop" active="workshops">
+  <a href="/admin/workshops" class="muted" style="font-size: 14px;">← Workshops</a>
+
+  {error && (
+    <div class="card" style="background: #FEE; border-color: #B71C1C; margin: 16px 0;">
+      <strong>Failed to create:</strong> {error}
+    </div>
+  )}
+
+  {available.length === 0 && (
+    <div class="card" style="margin: 16px 0; background: #FFF3E0; border-color: #CC2229;">
+      <strong>No available workshop courses.</strong>
+      <p class="muted" style="margin: 8px 0 0;">
+        You need a course with <code>content_type='workshop'</code> first.
+        <a href="/admin/courses/new">Create one</a> (pick "workshop" as content type), then come back here.
+      </p>
+    </div>
+  )}
+
+  <form method="POST" action="/api/admin/workshops/new" class="card" style="max-width: 720px; margin-top: 16px;">
+    <label style="display: block; margin-bottom: 16px;">
+      <div style="font-weight: 600; margin-bottom: 6px;">Course <span style="color: var(--red);">*</span></div>
+      <select name="course_id" required style="width: 100%; padding: 10px; border: 1px solid #D0D5DD; border-radius: 6px; font-size: 15px;">
+        <option value="">— select a workshop course —</option>
+        {available.map((c: any) => (
+          <option value={c.id}>{c.title} ({c.slug})</option>
+        ))}
+      </select>
+      <div class="muted" style="font-size: 12px; margin-top: 4px;">Each workshop is wrapped around one published workshop-typed course.</div>
+    </label>
+
+    <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 16px; margin-bottom: 16px;">
+      <label>
+        <div style="font-weight: 600; margin-bottom: 6px;">Starts at (UTC) <span style="color: var(--red);">*</span></div>
+        <input type="datetime-local" name="starts_at" required value={defaultStarts} step="900"
+          style="width: 100%; padding: 10px; border: 1px solid #D0D5DD; border-radius: 6px; font-size: 15px;" />
+      </label>
+      <label>
+        <div style="font-weight: 600; margin-bottom: 6px;">Duration (minutes)</div>
+        <input type="number" name="duration_minutes" min="5" max="600" value="60"
+          style="width: 100%; padding: 10px; border: 1px solid #D0D5DD; border-radius: 6px; font-size: 15px;" />
+      </label>
+    </div>
+
+    <label style="display: block; margin-bottom: 16px;">
+      <div style="font-weight: 600; margin-bottom: 6px;">Capacity</div>
+      <input type="number" name="capacity" min="1" max="10000" placeholder="30"
+        style="width: 120px; padding: 10px; border: 1px solid #D0D5DD; border-radius: 6px; font-size: 15px;" />
+      <div class="muted" style="font-size: 12px; margin-top: 4px;">Leave blank for unlimited.</div>
+    </label>
+
+    <label style="display: block; margin-bottom: 16px;">
+      <div style="font-weight: 600; margin-bottom: 6px;">Instructor</div>
+      <input type="text" name="instructor_name" value={user.full_name || ''}
+        style="width: 100%; padding: 10px; border: 1px solid #D0D5DD; border-radius: 6px; font-size: 15px;" />
+    </label>
+
+    <label style="display: block; margin-bottom: 16px;">
+      <div style="font-weight: 600; margin-bottom: 6px;">Meeting URL <span class="muted" style="font-weight: 400; font-size: 13px;">(Google Meet / Zoom / Whereby)</span></div>
+      <input type="url" name="meeting_url" placeholder="https://meet.google.com/abc-defg-hij" required
+        style="width: 100%; padding: 10px; border: 1px solid #D0D5DD; border-radius: 6px; font-family: ui-monospace, monospace; font-size: 14px;" />
+    </label>
+
+    <fieldset style="border: 1px solid #E5E9F0; border-radius: 6px; padding: 12px 16px; margin-bottom: 16px;">
+      <legend style="padding: 0 8px; font-weight: 600;">Reminder schedule</legend>
+      <label style="display: flex; gap: 8px; align-items: center; margin: 4px 0;"><input type="checkbox" name="remind_24h" value="1" checked />24h before</label>
+      <label style="display: flex; gap: 8px; align-items: center; margin: 4px 0;"><input type="checkbox" name="remind_1h" value="1" checked />1h before</label>
+      <label style="display: flex; gap: 8px; align-items: center; margin: 4px 0;"><input type="checkbox" name="remind_15m" value="1" />15min before</label>
+    </fieldset>
+
+    <div style="display: flex; gap: 12px;">
+      <button type="submit" class="btn btn-primary">Schedule workshop</button>
+      <a href="/admin/workshops" class="btn btn-secondary">Cancel</a>
+    </div>
+  </form>
+</AdminLayout>

@@ -1,0 +1,134 @@
+---
+import AdminLayout from '../../../layouts/AdminLayout.astro';
+import { requireAdmin } from '../../../lib/auth';
+import { makeAuthenticatedClient, makeServiceRoleClient } from '../../../lib/supabase';
+
+const gate = await requireAdmin(Astro);
+if (gate instanceof Response) return gate;
+
+const client = makeAuthenticatedClient(Astro);
+
+// All workshops with their underlying course + enrollment counts.
+const { data: workshops } = await client
+  .from('lms_workshops')
+  .select(`
+    course_id, starts_at, ends_at, capacity, meeting_url, recording_url,
+    instructor_id, remind_24h, remind_1h, remind_15m,
+    lms_courses ( id, slug, title, is_published )
+  `)
+  .order('starts_at', { ascending: true });
+
+// Enrich with enrollment counts (per workshop = sum of lms_enrollments where course_id = workshop.course_id)
+const enrollmentByCourse = new Map<string, number>();
+{
+  const admin = makeServiceRoleClient(Astro);
+  if (admin && workshops && workshops.length > 0) {
+    const { data: counts } = await admin
+      .from('lms_enrollments')
+      .select('course_id, user_id');
+    for (const row of counts || []) {
+      enrollmentByCourse.set(row.course_id, (enrollmentByCourse.get(row.course_id) || 0) + 1);
+    }
+  }
+}
+
+const now = new Date();
+const upcoming = workshops?.filter((w: any) => new Date(w.starts_at) > now) || [];
+const live = workshops?.filter((w: any) => {
+  const s = new Date(w.starts_at); const e = new Date(w.ends_at);
+  return s <= now && now <= e;
+}) || [];
+const past = workshops?.filter((w: any) => new Date(w.ends_at) < now) || [];
+
+const fmt = (s: string) => new Date(s).toLocaleString();
+---
+<AdminLayout title="Workshops" active="workshops">
+  <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px;">
+    <p class="muted" style="margin: 0;">Scheduled live sessions. Each workshop is wrapped around a published course.</p>
+    <a href="/admin/workshops/new" class="btn btn-primary">+ New workshop</a>
+  </div>
+
+  {(!workshops || workshops.length === 0) && (
+    <div class="card">
+      <p class="muted" style="margin: 0;">No workshops yet. <a href="/admin/workshops/new">Schedule one.</a></p>
+    </div>
+  )}
+
+  {upcoming.length > 0 && (
+    <>
+      <h2>Upcoming <span class="muted" style="font-size: 14px; font-weight: 400;">({upcoming.length})</span></h2>
+      <table style="width: 100%; border-collapse: collapse; background: white; border: 1px solid #E5E9F0; border-radius: 8px; overflow: hidden;">
+        <thead><tr style="background: var(--bg-3);">
+          <th style="text-align:left;padding:10px;font-size:11px;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-muted);">Course</th>
+          <th style="text-align:left;padding:10px;font-size:11px;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-muted);">Starts</th>
+          <th style="text-align:left;padding:10px;font-size:11px;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-muted);">Enrolled / Capacity</th>
+          <th style="text-align:left;padding:10px;font-size:11px;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-muted);">Recording</th>
+          <th style="text-align:right;padding:10px;font-size:11px;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-muted);">Actions</th>
+        </tr></thead>
+        <tbody>
+          {upcoming.map((w: any) => {
+            const enrolled = enrollmentByCourse.get(w.course_id) || 0;
+            const cap = w.capacity ?? '∞';
+            const full = w.capacity != null && enrolled >= w.capacity;
+            return (
+              <tr style="border-top: 1px solid #E5E9F0;">
+                <td style="padding: 10px;"><strong>{w.lms_courses.title}</strong><div class="muted" style="font-size: 12px;">{w.lms_courses.slug}</div></td>
+                <td style="padding: 10px;">{fmt(w.starts_at)}</td>
+                <td style="padding: 10px;">{enrolled} / {cap}{full && <span style="color:#B71C1C;font-weight:600;"> · full</span>}</td>
+                <td style="padding: 10px;">{w.recording_url ? '✓' : <span class="muted">—</span>}</td>
+                <td style="padding: 10px; text-align: right;">
+                  <a href={`/admin/workshops/${w.course_id}`} class="btn btn-secondary" style="font-size: 13px;">Edit</a>
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </>
+  )}
+
+  {live.length > 0 && (
+    <>
+      <h2 style="margin-top: 32px;">Live now <span class="muted" style="font-size: 14px; font-weight: 400;">({live.length})</span></h2>
+      {live.map((w: any) => (
+        <div class="card" style="border-color: #1B5E20; background: #E8F5E9;">
+          <strong>{w.lms_courses.title}</strong> — {fmt(w.starts_at)} to {fmt(w.ends_at)}
+          <p class="muted" style="margin: 8px 0 0; font-size: 13px;">Meeting URL: <a href={w.meeting_url}>{w.meeting_url}</a></p>
+        </div>
+      ))}
+    </>
+  )}
+
+  {past.length > 0 && (
+    <>
+      <h2 style="margin-top: 32px;">Past <span class="muted" style="font-size: 14px; font-weight: 400;">({past.length})</span></h2>
+      <table style="width: 100%; border-collapse: collapse; background: white; border: 1px solid #E5E9F0; border-radius: 8px; overflow: hidden;">
+        <thead><tr style="background: var(--bg-3);">
+          <th style="text-align:left;padding:10px;font-size:11px;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-muted);">Course</th>
+          <th style="text-align:left;padding:10px;font-size:11px;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-muted);">Started</th>
+          <th style="text-align:left;padding:10px;font-size:11px;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-muted);">Ended</th>
+          <th style="text-align:left;padding:10px;font-size:11px;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-muted);">Recording</th>
+          <th style="text-align:right;padding:10px;font-size:11px;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-muted);">Actions</th>
+        </tr></thead>
+        <tbody>
+          {past.map((w: any) => (
+            <tr style="border-top: 1px solid #E5E9F0;">
+              <td style="padding: 10px;"><strong>{w.lms_courses.title}</strong></td>
+              <td style="padding: 10px;">{fmt(w.starts_at)}</td>
+              <td style="padding: 10px;">{fmt(w.ends_at)}</td>
+              <td style="padding: 10px;">
+                {w.recording_url
+                  ? <a href={w.recording_url}>✓ link</a>
+                  : <span class="muted">not uploaded</span>
+                }
+              </td>
+              <td style="padding: 10px; text-align: right;">
+                <a href={`/admin/workshops/${w.course_id}`} class="btn btn-secondary" style="font-size: 13px;">Edit</a>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </>
+  )}
+</AdminLayout>

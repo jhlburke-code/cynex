@@ -1,0 +1,134 @@
+---
+import AdminLayout from '../../../layouts/AdminLayout.astro';
+import { requireAdmin } from '../../../lib/auth';
+import { makeAuthenticatedClient, makeServiceRoleClient } from '../../../lib/supabase';
+
+const gate = await requireAdmin(Astro);
+if (gate instanceof Response) return gate;
+
+const { id } = Astro.params;
+if (!id) return new Response('missing id', { status: 400 });
+
+const client = makeAuthenticatedClient(Astro);
+
+const { data: ws } = await client
+  .from('lms_workshops')
+  .select(`
+    course_id, starts_at, ends_at, capacity, meeting_url, recording_url,
+    instructor_id, remind_24h, remind_1h, remind_15m,
+    lms_courses ( id, slug, title, content_type )
+  `)
+  .eq('course_id', id)
+  .maybeSingle();
+
+if (!ws) return new Response('not found', { status: 404 });
+
+let enrolled = 0;
+{
+  const admin = makeServiceRoleClient(Astro);
+  if (admin) {
+    const { count } = await admin
+      .from('lms_enrollments')
+      .select('user_id', { count: 'exact', head: true })
+      .eq('course_id', ws.course_id);
+    enrolled = count || 0;
+  }
+}
+
+const url = Astro.url;
+const errorMsg = url.searchParams.get('error');
+const savedFlag = url.searchParams.get('saved') === '1';
+const fmt = (s: string) => new Date(s).toLocaleString();
+const fmtLocal = (s: string) => new Date(s).toISOString().slice(0, 16);
+---
+<AdminLayout title={`Workshop: ${ws.lms_courses.title}`} active="workshops">
+  <a href="/admin/workshops" class="muted" style="font-size: 14px;">← Workshops</a>
+
+  {errorMsg && (
+    <div class="card" style="background: #FEE; border-color: #B71C1C; margin: 16px 0;">
+      <strong>Save failed:</strong> {errorMsg}
+    </div>
+  )}
+  {savedFlag && (
+    <div class="card" style="background: #E8F5E9; border-color: #1B5E20; margin: 16px 0;">
+      <strong>✓ Saved.</strong>
+    </div>
+  )}
+
+  <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 24px; margin-top: 16px;">
+    <form method="POST" action={`/api/admin/workshops/${ws.course_id}`} class="card">
+      <input type="hidden" name="_method" value="PATCH" />
+
+      <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 16px; margin-bottom: 16px;">
+        <label>
+          <div style="font-weight: 600; margin-bottom: 6px;">Starts at (UTC)</div>
+          <input type="datetime-local" name="starts_at" required value={fmtLocal(ws.starts_at)} step="900"
+            style="width: 100%; padding: 10px; border: 1px solid #D0D5DD; border-radius: 6px; font-size: 15px;" />
+        </label>
+        <label>
+          <div style="font-weight: 600; margin-bottom: 6px;">Duration (minutes)</div>
+          <input type="number" name="duration_minutes" min="5" max="600" value={Math.round((new Date(ws.ends_at).getTime() - new Date(ws.starts_at).getTime()) / 60000)}
+            style="width: 100%; padding: 10px; border: 1px solid #D0D5DD; border-radius: 6px; font-size: 15px;" />
+        </label>
+      </div>
+
+      <label style="display: block; margin-bottom: 16px;">
+        <div style="font-weight: 600; margin-bottom: 6px;">Capacity</div>
+        <input type="number" name="capacity" min="1" max="10000" value={ws.capacity ?? ''} placeholder="leave blank for unlimited"
+          style="width: 120px; padding: 10px; border: 1px solid #D0D5DD; border-radius: 6px; font-size: 15px;" />
+      </label>
+
+      <label style="display: block; margin-bottom: 16px;">
+        <div style="font-weight: 600; margin-bottom: 6px;">Meeting URL</div>
+        <input type="url" name="meeting_url" required value={ws.meeting_url ?? ''}
+          style="width: 100%; padding: 10px; border: 1px solid #D0D5DD; border-radius: 6px; font-family: ui-monospace, monospace; font-size: 14px;" />
+      </label>
+
+      <fieldset style="border: 1px solid #E5E9F0; border-radius: 6px; padding: 12px 16px; margin-bottom: 16px;">
+        <legend style="padding: 0 8px; font-weight: 600;">Reminder schedule</legend>
+        <label style="display: flex; gap: 8px; align-items: center; margin: 4px 0;">
+          <input type="checkbox" name="remind_24h" value="1" checked={ws.remind_24h} />
+          24h before
+        </label>
+        <label style="display: flex; gap: 8px; align-items: center; margin: 4px 0;">
+          <input type="checkbox" name="remind_1h" value="1" checked={ws.remind_1h} />
+          1h before
+        </label>
+        <label style="display: flex; gap: 8px; align-items: center; margin: 4px 0;">
+          <input type="checkbox" name="remind_15m" value="1" checked={ws.remind_15m} />
+          15min before
+        </label>
+      </fieldset>
+
+      <label style="display: block; margin-bottom: 24px;">
+        <div style="font-weight: 600; margin-bottom: 6px;">Recording URL <span class="muted" style="font-weight: 400; font-size: 13px;">(paste-URL only in v1; uploads in Phase 5)</span></div>
+        <input type="url" name="recording_url" value={ws.recording_url ?? ''} placeholder="https://drive.google.com/file/d/.../view"
+          style="width: 100%; padding: 10px; border: 1px solid #D0D5DD; border-radius: 6px; font-family: ui-monospace, monospace; font-size: 14px;" />
+      </label>
+
+      <div style="display: flex; gap: 12px;">
+        <button type="submit" class="btn btn-primary">Save</button>
+        <a href={`/learn/${ws.lms_courses.slug}`} class="btn btn-secondary" target="_blank">View as learner →</a>
+      </div>
+    </form>
+
+    <div>
+      <div class="card" style="margin-bottom: 16px;">
+        <h2 style="margin-top: 0; font-size: 16px;">Status</h2>
+        <div class="muted" style="font-size: 13px;">
+          Enrolled: <strong>{enrolled}</strong>{ws.capacity != null && <> / {ws.capacity}</>}<br/>
+          Starts: <strong>{fmt(ws.starts_at)}</strong><br/>
+          Ends: <strong>{fmt(ws.ends_at)}</strong><br/>
+          Reminders: {[ws.remind_24h && '24h', ws.remind_1h && '1h', ws.remind_15m && '15m'].filter(Boolean).join(' / ') || '—'}
+        </div>
+      </div>
+
+      <div class="card" style="border-color: #B71C1C;">
+        <h2 style="margin-top: 0; font-size: 16px; color: #B71C1C;">Danger zone</h2>
+        <form method="POST" action={`/api/admin/workshops/${ws.course_id}/delete`} onsubmit="return confirm('Delete this workshop? Enrollments are kept; only the workshop shell is removed.');">
+          <button type="submit" class="btn btn-secondary" style="border-color: #B71C1C; color: #B71C1C;">Delete workshop</button>
+        </form>
+      </div>
+    </div>
+  </div>
+</AdminLayout>

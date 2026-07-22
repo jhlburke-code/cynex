@@ -1,6 +1,6 @@
 ---
 import Layout from '../../layouts/Layout.astro';
-import { makeBrowserClient, makeAuthenticatedClient, isAdminEmail, getCurrentUser } from '../../lib/supabase';
+import { makeBrowserClient, makeAuthenticatedClient, makeServiceRoleClient, isAdminEmail, getCurrentUser } from '../../lib/supabase';
 
 const { slug } = Astro.params;
 if (!slug) return Astro.redirect('/catalog');
@@ -19,7 +19,26 @@ if (!course) {
 
 const user = await getCurrentUser(Astro);
 let alreadyEnrolled = false;
-if (user) {
+let workshop = null;
+let registeredCount = 0;
+
+if (course.content_type === 'workshop') {
+  // Fetch workshop details
+  const admin = makeServiceRoleClient(Astro);
+  if (admin) {
+    const { data: ws } = await admin
+      .from('lms_workshops')
+      .select('starts_at, ends_at, capacity, meeting_url, recording_url, remind_24h, remind_1h, remind_15m')
+      .eq('course_id', (course as any).id)
+      .maybeSingle();
+    workshop = ws;
+    const { count } = await admin
+      .from('lms_enrollments')
+      .select('user_id', { count: 'exact', head: true })
+      .eq('course_id', (course as any).id);
+    registeredCount = count || 0;
+  }
+} else if (user) {
   const auth = makeAuthenticatedClient(Astro);
   const { data: enr } = await auth
     .from('lms_enrollments')
@@ -31,6 +50,10 @@ if (user) {
 }
 
 const isAdmin = isAdminEmail(user?.email);
+
+const isFull = workshop && workshop.capacity != null && registeredCount >= workshop.capacity;
+const isPast = workshop && new Date(workshop.ends_at) < new Date();
+const fmt = (s: string) => new Date(s).toLocaleString();
 ---
 <Layout title={course.title} description={course.description}>
   <section class="container">
@@ -39,21 +62,58 @@ const isAdmin = isAdminEmail(user?.email);
       <span class={`tag tag-${course.content_type}`}>{course.content_type}</span>
       <h1 style="margin-top: 12px;">{course.title}</h1>
       <p class="muted" style="font-size: 17px;">{course.description}</p>
-
-      {course.duration_minutes && (
-        <p class="muted">~{course.duration_minutes} min</p>
-      )}
     </div>
 
+    {workshop && (
+      <div class="card" style="margin-top: 24px; max-width: 720px;">
+        <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 16px;">
+          <div>
+            <div class="muted" style="font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em;">Scheduled</div>
+            <div style="font-size: 22px; font-weight: 700; margin: 4px 0;">{fmt(workshop.starts_at)}</div>
+            <div class="muted">Duration: {Math.round((new Date(workshop.ends_at).getTime() - new Date(workshop.starts_at).getTime()) / 60000)} minutes</div>
+          </div>
+          <div style="text-align: right;">
+            <div class="muted" style="font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em;">Capacity</div>
+            <div style="font-size: 22px; font-weight: 700; margin: 4px 0;">
+              {registeredCount}{workshop.capacity != null && <> / {workshop.capacity}</>}
+            </div>
+            {isFull && <span style="color: #B71C1C; font-weight: 600;">Full</span>}
+          </div>
+        </div>
+        {!isPast && (
+          <div style="margin-top: 16px;">
+            <div style="background: #F4F7FA; height: 8px; border-radius: 4px; overflow: hidden;">
+              <div style={`background: ${isFull ? '#B71C1C' : '#CC2229'}; height: 100%; width: ${workshop.capacity ? Math.min(100, registeredCount / workshop.capacity * 100) : 30}%;`}></div>
+            </div>
+          </div>
+        )}
+      </div>
+    )}
+
     <div class="card" style="margin-top: 32px; max-width: 720px;">
-      {!user && (
+      {!user && !workshop && (
         <>
           <h2>Enroll</h2>
           <p class="muted">Sign in to enroll on this course.</p>
           <a href={`/login?next=/c/${course.slug}`} class="btn btn-primary">Sign in to enroll</a>
         </>
       )}
-      {user && !alreadyEnrolled && (
+      {!user && workshop && !isPast && (
+        <>
+          <h2>Reserve your spot</h2>
+          <p class="muted">Sign in to register for this workshop.</p>
+          <a href={`/login?next=/c/${course.slug}`} class="btn btn-primary">Sign in to register</a>
+        </>
+      )}
+      {!user && workshop && isPast && workshop.recording_url && (
+        <>
+          <h2>Watch the recording</h2>
+          <p class="muted">This workshop has ended.</p>
+          <a href={workshop.recording_url} class="btn btn-primary">Watch recording</a>
+        </>
+      )}
+
+      {user && !workshop && !alreadyEnrolled && (
         <>
           <h2>Enroll</h2>
           <p class="muted">Self-enroll to start. You'll receive a confirmation email.</p>
@@ -64,15 +124,41 @@ const isAdmin = isAdminEmail(user?.email);
           </form>
         </>
       )}
-      {user && alreadyEnrolled && (
+      {user && !workshop && alreadyEnrolled && (
         <>
           <h2>✓ Enrolled</h2>
           <p class="muted">You're enrolled on this course.</p>
           <a href={`/learn/${course.slug}`} class="btn btn-primary">Open course</a>
         </>
       )}
+
+      {user && workshop && isPast && workshop.recording_url && !isAdmin && (
+        <form method="POST" action={`/api/enroll`} style="display: inline;">
+          <input type="hidden" name="course_id" value={course.id} />
+          <input type="hidden" name="course_slug" value={course.slug} />
+          <h2>Watch the recording</h2>
+          <a href={workshop.recording_url} class="btn btn-primary">Watch recording</a>
+          {!alreadyEnrolled && <p class="muted" style="margin-top: 8px; font-size: 13px;">Or <button type="submit" style="background:none;border:0;color:var(--red);cursor:pointer;text-decoration:underline;padding:0;font-family:inherit;font-size:inherit;">enroll</button> to track this course.</p>}
+        </form>
+      )}
+
+      {user && workshop && !isPast && alreadyEnrolled && (
+        <>
+          <h2>✓ Registered</h2>
+          <p class="muted">You're registered. We'll send you reminders.</p>
+          <a href={`/learn/${course.slug}`} class="btn btn-primary">View workshop</a>
+        </>
+      )}
+      {user && workshop && !isPast && !alreadyEnrolled && (
+        <form method="POST" action={`/api/workshops/${course.id}/register`}>
+          {isFull
+            ? <button type="button" class="btn btn-secondary" disabled>Workshop full</button>
+            : <button type="submit" class="btn btn-primary">Reserve your spot</button>
+          }
+        </form>
+      )}
       {isAdmin && (
-        <p class="muted" style="margin-top: 16px; font-size: 13px;">Admin view</p>
+        <p class="muted" style="margin-top: 16px; font-size: 13px;">Admin view · <a href={`/admin/workshops/${course.id}`}>edit workshop</a></p>
       )}
     </div>
   </section>

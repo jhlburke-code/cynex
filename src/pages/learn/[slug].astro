@@ -1,6 +1,6 @@
 ---
 import Layout from '../../layouts/Layout.astro';
-import { makeBrowserClient, makeAuthenticatedClient, getCurrentUser } from '../../lib/supabase';
+import { makeBrowserClient, makeAuthenticatedClient, makeServiceRoleClient, getCurrentUser } from '../../lib/supabase';
 
 const { slug } = Astro.params;
 if (!slug) return Astro.redirect('/catalog');
@@ -26,18 +26,46 @@ const { data: enr } = await auth
   .maybeSingle();
 if (!enr) return Astro.redirect(`/c/${slug}`);
 
-// Check if already completed for the UI state
+// Workshop details (if applicable)
+let workshop = null;
+if (course.content_type === 'workshop') {
+  const admin = makeServiceRoleClient(Astro);
+  if (admin) {
+    const { data: ws } = await admin
+      .from('lms_workshops')
+      .select('starts_at, ends_at, capacity, meeting_url, recording_url')
+      .eq('course_id', (course as any).id)
+      .maybeSingle();
+    workshop = ws;
+  }
+}
+
+// Check if already completed — for non-workshop courses only.
 const { data: existingCompletion } = await auth
   .from('lms_completions')
   .select('id, completed_at')
   .eq('user_id', user.id)
   .eq('course_id', (course as any).id)
   .maybeSingle();
-const alreadyCompleted = !!existingCompletion;
+const showAlreadyCompleted = !!(existingCompletion) && course.content_type !== 'workshop';
 
-const completionMessage = alreadyCompleted && existingCompletion
+const completionMessage = existingCompletion && course.content_type !== 'workshop'
   ? `You already completed this course on ${new Date(existingCompletion.completed_at).toLocaleDateString()}.`
   : '';
+
+type WorkshopState = 'upcoming' | 'live-soon' | 'live' | 'past' | 'past-no-recording' | null;
+let workshopState: WorkshopState = null;
+if (workshop) {
+  const now = Date.now();
+  const startMs = new Date(workshop.starts_at).getTime();
+  const endMs = new Date(workshop.ends_at).getTime();
+  const joinWindowMs = 15 * 60 * 1000;
+  if (now < startMs - joinWindowMs) workshopState = 'upcoming';
+  else if (now < startMs) workshopState = 'live-soon';
+  else if (now < endMs) workshopState = 'live';
+  else if (workshop.recording_url) workshopState = 'past';
+  else workshopState = 'past-no-recording';
+}
 ---
 <Layout title={course.title}>
   <section class="container">
@@ -71,14 +99,61 @@ const completionMessage = alreadyCompleted && existingCompletion
         </div>
       )}
       {course.content_type === 'workshop' && (
-        <div style="padding: 24px;">
-          <h2>Workshop</h2>
-          <p class="muted">Workshop runner lands in Phase 4. For now, see the catalog card.</p>
+        <div style="padding: 32px;">
+          {workshop && workshopState === 'upcoming' && (
+            <>
+              <h2 style="margin-top: 0;">Upcoming workshop</h2>
+              <p class="muted">{new Date(workshop.starts_at).toLocaleString()} → {new Date(workshop.ends_at).toLocaleString()}</p>
+              <p class="muted">The join link appears here 15 minutes before the start.</p>
+              <div id="cynex-workshop-countdown" data-starts-at={workshop.starts_at} style="font-size: 28px; font-weight: 700; margin: 24px 0 8px; font-variant-numeric: tabular-nums;"></div>
+              <p class="muted" id="cynex-workshop-countdown-label">until the workshop starts</p>
+            </>
+          )}
+          {workshop && workshopState === 'live-soon' && (
+            <>
+              <h2 style="margin-top: 0;">Workshop starting soon</h2>
+              <p class="muted">Starts at {new Date(workshop.starts_at).toLocaleString()}.</p>
+              <p style="margin-top: 16px;">
+                <a href={workshop.meeting_url} class="btn btn-primary" target="_blank" rel="noopener">Join workshop</a>
+              </p>
+            </>
+          )}
+          {workshop && workshopState === 'live' && (
+            <>
+              <h2 style="margin-top: 0; color: #1B5E20;">🟢 Live now</h2>
+              <p class="muted">The workshop is in session. Click to join.</p>
+              <p style="margin-top: 16px;">
+                <a href={workshop.meeting_url} class="btn btn-primary" target="_blank" rel="noopener">Join workshop</a>
+              </p>
+            </>
+          )}
+          {workshop && workshopState === 'past' && (
+            <>
+              <h2 style="margin-top: 0;">Workshop ended</h2>
+              <p class="muted">Recording is available below.</p>
+              <p style="margin-top: 16px;">
+                <a href={workshop.recording_url} class="btn btn-primary" target="_blank" rel="noopener">Watch recording</a>
+              </p>
+            </>
+          )}
+          {workshop && workshopState === 'past-no-recording' && (
+            <>
+              <h2 style="margin-top: 0;">Workshop ended</h2>
+              <p class="muted">Recording hasn't been uploaded yet. We'll send you an email when it is.</p>
+              <p class="muted" style="margin-top: 12px; font-size: 13px;">Meeting date: {new Date(workshop.starts_at).toLocaleString()}</p>
+            </>
+          )}
+          {!workshop && course.content_type === 'workshop' && (
+            <div style="padding: 24px;">
+              <h2>Workshop</h2>
+              <p class="muted">No workshop scheduled for this course yet. The operator will set one up shortly.</p>
+            </div>
+          )}
         </div>
       )}
     </div>
 
-    {alreadyCompleted && (
+    {showAlreadyCompleted && (
       <div class="card" style="margin-top: 16px; background: #E8F5E9; border-color: #1B5E20;">
         <strong>✓ Already completed.</strong>
         <p class="muted" style="margin: 8px 0 0;">{completionMessage}</p>
@@ -88,55 +163,70 @@ const completionMessage = alreadyCompleted && existingCompletion
 
   <script is:inline>
     (() => {
-      const log = (m) => {
-        try { console.log('[cynex-learn]', m); } catch {}
-      };
+      const log = (m) => { try { console.log('[cynex-learn]', m); } catch {} };
       const frame = document.getElementById('cynex-widget-frame');
       const msgBox = document.getElementById('cynex-course-message');
-      log('boot — frame=' + (frame ? frame.id : 'NULL') + ' msgBox=' + (msgBox ? msgBox.id : 'NULL'));
-      if (!frame || !msgBox) return;
-      const courseId = frame.getAttribute('data-course-id');
-      const slug = frame.getAttribute('data-course-slug');
-      log('attrs: courseId=' + courseId + ' slug=' + slug);
 
-      const show = (text, ok) => {
-        ok = (ok === undefined) ? true : ok;
-        msgBox.innerHTML = '<div class="card" style="background:' + (ok ? '#E8F5E9' : '#FEE') + ';border-color:' + (ok ? '#1B5E20' : '#B71C1C') + ';"><p style="margin:0;">' + text + '</p></div>';
-      };
-
-      let inFlight = false;
-
-      window.addEventListener('message', async (event) => {
-        log('msg event — origin=' + event.origin + ' data=' + JSON.stringify(event.data));
-        if (!event.origin || !event.origin.endsWith('.workers.dev')) { log('  reject: origin'); return; }
-        if (!event.data || event.data.type !== 'complete') { log('  reject: shape'); return; }
-        if (inFlight) { log('  reject: in-flight'); return; }
-        inFlight = true;
-
-        show('Saving your completion…');
-        log('  POST /api/complete courseId=' + courseId);
-        try {
-          const r = await fetch('/api/complete', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ course_id: courseId, slug: slug, method: 'iframe_postmessage' }),
-          });
-          const j = await r.json();
-          log('  response: ' + r.status + ' ' + JSON.stringify(j));
-          if (j.ok) {
-            show('Course completed. We will email you a certificate link shortly.');
-          } else {
-            show("Couldn't save completion: " + (j.message || 'unknown'), false);
+      if (frame && msgBox) {
+        const courseId = frame.getAttribute('data-course-id');
+        const slug = frame.getAttribute('data-course-slug');
+        const show = (text, ok) => {
+          ok = (ok === undefined) ? true : ok;
+          msgBox.innerHTML = '<div class="card" style="background:' + (ok ? '#E8F5E9' : '#FEE') + ';border-color:' + (ok ? '#1B5E20' : '#B71C1C') + ';"><p style="margin:0;">' + text + '</p></div>';
+        };
+        let inFlight = false;
+        window.addEventListener('message', async (event) => {
+          log('msg event — origin=' + event.origin + ' data=' + JSON.stringify(event.data));
+          if (!event.origin || !event.origin.endsWith('.workers.dev')) return;
+          if (!event.data || event.data.type !== 'complete') return;
+          if (inFlight) return;
+          inFlight = true;
+          show('Saving your completion…');
+          try {
+            const r = await fetch('/api/complete', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ course_id: courseId, slug: slug, method: 'iframe_postmessage' }),
+            });
+            const j = await r.json();
+            if (j.ok) {
+              show('Course completed. We will email you a certificate link shortly.');
+            } else {
+              show('Couldn\\'t save completion: ' + (j.message || 'unknown'), false);
+            }
+          } catch (e) {
+            show('Network error saving completion.', false);
+          } finally {
+            inFlight = false;
           }
-        } catch (e) {
-          log('  EXCEPTION: ' + String(e));
-          show('Network error saving completion.', false);
-        } finally {
-          inFlight = false;
-        }
-      });
+        });
+      }
 
-      log('listener registered');
+      // Workshop countdown — updates every second.
+      const cd = document.getElementById('cynex-workshop-countdown');
+      const cdLabel = document.getElementById('cynex-workshop-countdown-label');
+      if (cd) {
+        const startsAt = new Date(cd.getAttribute('data-starts-at')).getTime();
+        const tick = () => {
+          const diff = startsAt - Date.now();
+          if (diff <= 0) {
+            cd.textContent = '00:00:00';
+            if (cdLabel) cdLabel.textContent = 'reload to join';
+            return;
+          }
+          const d = Math.floor(diff / 86400000);
+          const h = Math.floor((diff % 86400000) / 3600000);
+          const m = Math.floor((diff % 3600000) / 60000);
+          const s = Math.floor((diff % 60000) / 1000);
+          let out = '';
+          if (d > 0) out += d + 'd ';
+          out += String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0');
+          cd.textContent = out;
+          if (cdLabel) cdLabel.textContent = (d > 0 ? 'until the workshop starts' : 'until the workshop starts');
+        };
+        tick();
+        setInterval(tick, 1000);
+      }
     })();
   </script>
 </Layout>

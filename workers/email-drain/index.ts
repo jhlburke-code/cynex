@@ -83,16 +83,40 @@ function renderTemplate(template: string, payload: Record<string, any>, profile:
     return { subject, html: envelope('Enrollment confirmed', inner), text: `You're enrolled in "${course.title}". Open the course: ${url}` };
   }
   if (template === 'workshop_t24h') {
-    const url = payload.meeting_url || '#';
-    const starts = payload.starts_at ? new Date(payload.starts_at).toUTCString() : 'TBA';
+    const url = `${baseUrl}/learn/${payload.slug || ''}`;
+    const starts = payload.starts_at ? new Date(payload.starts_at).toLocaleString() : 'TBA';
     const subject = `Workshop tomorrow: ${payload.title || 'Live session'}`;
     const inner = `<div class="body">
-      <h1>Workshop reminder, ${name}.</h1>
+      <h1>Workshop tomorrow, ${name}.</h1>
       <p>"<strong>${escapeHtml(payload.title || '')}</strong>" starts at <strong>${escapeHtml(starts)}</strong>.</p>
-      <p><a class="btn" href="${url}">Join link</a></p>
-      <p class="meta">Set by the operator; unsubscribe by replying.</p>
+      <p>Open the course page for the join link 15 minutes before the start.</p>
+      <p><a class="btn" href="${url}">View workshop</a></p>
+      <p class="meta">Sent by Cynex. Reply if you need to cancel.</p>
     </div>`;
-    return { subject, html: envelope('Workshop reminder', inner), text: `Workshop "${payload.title}" starts at ${starts}. Join: ${url}` };
+    return { subject, html: envelope('Workshop reminder · 24h', inner), text: `Workshop "${payload.title}" starts at ${starts}. View: ${url}` };
+  }
+  if (template === 'workshop_t1h') {
+    const url = payload.meeting_url || `${baseUrl}/learn/${payload.slug || ''}`;
+    const starts = payload.starts_at ? new Date(payload.starts_at).toLocaleString() : 'shortly';
+    const subject = `Workshop starts in 1 hour: ${payload.title || 'Live session'}`;
+    const inner = `<div class="body">
+      <h1>Starting in 1 hour, ${name}.</h1>
+      <p>"<strong>${escapeHtml(payload.title || '')}</strong>" begins at <strong>${escapeHtml(starts)}</strong>.</p>
+      <p><a class="btn" href="${url}">Join now</a></p>
+      <p class="meta">Sent by Cynex.</p>
+    </div>`;
+    return { subject, html: envelope('Workshop reminder · 1h', inner), text: `Workshop "${payload.title}" starts in ~1 hour. Join: ${url}` };
+  }
+  if (template === 'recording_ready') {
+    const url = payload.recording_url || `${baseUrl}/me`;
+    const subject = `Recording available: ${payload.title || 'Workshop'}`;
+    const inner = `<div class="body">
+      <h1>Recording ready, ${name}.</h1>
+      <p>The workshop "<strong>${escapeHtml(payload.title || '')}</strong>" has ended. Catch up on what you missed:</p>
+      <p><a class="btn" href="${url}">Watch recording</a></p>
+      <p class="meta">Sent by Cynex.</p>
+    </div>`;
+    return { subject, html: envelope('Recording available', inner), text: `Recording for "${payload.title}" is ready. Watch: ${url}` };
   }
   const subject = `Cynex: ${template}`;
   const inner = `<div class="body"><h1>${escapeHtml(subject)}</h1><p>${escapeHtml(profile.full_name || 'there')}</p><pre style="font-size:13px;background:#F4F7FA;padding:12px;border-radius:6px;overflow:auto;">${escapeHtml(JSON.stringify(payload, null, 2))}</pre></div>`;
