@@ -1,0 +1,59 @@
+---
+// Magic-link callback. Supabase redirects the user here with one of:
+//   - PKCE flow:        ?code=<auth_code>     (server-side, but needs code_verifier
+//                                              which we don't persist in SSR mode)
+//   - Implicit (default): #access_token=...&refresh_token=...
+// Hash fragments are only readable in the browser, so this is rendered as
+// HTML on the server and the client-side <script> parses them and POSTs the
+// tokens to /api/login/finish which sets our session cookies.
+import Layout from '../../../layouts/Layout.astro';
+
+const url = new URL(Astro.request.url);
+const next = url.searchParams.get('next') ?? '/me';
+---
+<Layout title="Signing you in…">
+  <section class="container" style="max-width: 480px; text-align: center;">
+    <h1>Signing you in…</h1>
+    <p class="muted">If this page doesn't redirect automatically, <a href="/login">request a new link</a>.</p>
+  </section>
+
+  <script is:inline define:vars={{ next }}>
+    (async () => {
+      try {
+        // Implicit flow: tokens live in the URL hash fragment.
+        const params = new URLSearchParams(window.location.hash.slice(1));
+        const access_token = params.get('access_token') || '';
+        const refresh_token = params.get('refresh_token') || '';
+
+        // PKCE fallback: code is in the query string; try to redeem it server-side.
+        const url = new URL(window.location.href);
+        const code = url.searchParams.get('code') || '';
+        const error_description = url.searchParams.get('error_description') || '';
+
+        if (error_description) {
+          window.location.replace('/login?error=' + encodeURIComponent(error_description));
+          return;
+        }
+
+        if (!access_token && !code) {
+          window.location.replace('/login?error=invalid');
+          return;
+        }
+
+        const r = await fetch('/api/login/finish', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ access_token, refresh_token, code, next }),
+        });
+        const j = await r.json();
+        if (j.ok) {
+          window.location.replace(j.next || next);
+          return;
+        }
+        window.location.replace('/login?error=' + encodeURIComponent(j.message || 'finish_failed'));
+      } catch (e) {
+        window.location.replace('/login?error=' + encodeURIComponent(String(e)));
+      }
+    })();
+  </script>
+</Layout>
