@@ -9,13 +9,13 @@ crons = [ "*/1 * * * *" ]
 [observability]
 enabled = true
 
-# Secrets (set via: wrangler secret put <name>)
-# SUPABASE_URL
-# SUPABASE_SERVICE_ROLE_KEY
-# RESEND_API_KEY
-# WORKER_SECRET
+# Plain text env vars (non-secret)
+[vars]
+EMAIL_FROM_NAME = "Cynex"
+EMAIL_FROM_ADDRESS = "onboarding@resend.dev"
 
-# Plain text vars (set via: wrangler secret put or wrangler.toml -- NOT for secrets)
-# These are not sensitive — they describe the sender
-# EMAIL_FROM_NAME = "Cynex"
-# EMAIL_FROM_ADDRESS = "onboarding@resend.dev"
+# Secrets — set via:
+#   wrangler secret put SUPABASE_URL
+#   wrangler secret put SUPABASE_SERVICE_ROLE_KEY
+#   wrangler secret put RESEND_API_KEY
+#   wrangler secret put WORKER_SECRET

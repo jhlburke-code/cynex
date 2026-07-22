@@ -6,9 +6,9 @@ export interface Env {
   SUPABASE_URL: string;
   SUPABASE_SERVICE_ROLE_KEY: string;
   RESEND_API_KEY: string;
-  EMAIL_FROM_NAME: string;        // "Cynex"
-  EMAIL_FROM_ADDRESS: string;     // "onboarding@resend.dev"
-  WORKER_SECRET: string;          // shared secret for the manual /drain endpoint
+  EMAIL_FROM_NAME: string;
+  EMAIL_FROM_ADDRESS: string;
+  WORKER_SECRET: string;
 }
 
 interface Notification {
@@ -20,18 +20,10 @@ interface Notification {
   attempts: number;
 }
 
-interface Profile {
-  email: string;
-  full_name: string | null;
-}
+interface Profile { email: string; full_name: string | null; }
+interface Course   { slug: string; title: string; description: string | null; }
 
-interface Course {
-  slug: string;
-  title: string;
-  description: string | null;
-}
-
-// ---------- Templates (HTML emails matching the existing AIINOD brand) ----------
+// ---------- Templates ----------
 
 const baseStyle = `<style>
   body { margin:0;padding:0;background:#F4F7FA;font-family:'Urbanist',Arial,sans-serif;color:#0F2347; }
@@ -62,29 +54,25 @@ function envelope(subject: string, bodyHtml: string): string {
     <div class="header-title"><span class="ai">Cy</span><span class="made">n</span><span class="human">ex</span></div>
   </div>
   ${bodyHtml}
-  <div class="footer">
-    Sent by Cynex for the AIINOD learning program &middot; Ignore this message if it doesn't apply to you
-  </div>
+  <div class="footer">Sent by Cynex for the AIINOD learning program &middot; Ignore this message if it does not apply to you</div>
 </div></body></html>`;
 }
 
-const TEXT_LINE = '</p><p>';
-
-function renderTemplate(template: string, payload: Record<string, any>, profile: Profile, course: Course | null): { subject: string; html: string; text: string } {
+function renderTemplate(template: string, payload: Record<string, any>, profile: Profile, course: Course | null, baseUrl: string): { subject: string; html: string; text: string } {
   const name = escapeHtml(profile.full_name || 'there');
   if (template === 'completion' && course) {
-    const url = `${payload.base_url || 'https://lms-e4f.pages.dev'}/me`;
+    const url = `${baseUrl}/me`;
     const subject = `You completed: ${course.title}`;
     const inner = `<div class="body">
-      <h1>Nice one, ${name} \u2014 you completed <em>${escapeHtml(course.title)}</em>.</h1>
-      <p>Your completion row is recorded. ${payload.cert_url ? 'Your certificate PDF is ready below.' : 'A certificate PDF will be available shortly (we\'re polishing that piece in Phase 5).'}</p>
+      <h1>Nice one, ${name} — you completed <em>${escapeHtml(course.title)}</em>.</h1>
+      <p>Your completion row is recorded. ${payload.cert_url ? 'Your certificate PDF is ready below.' : "A certificate PDF will be available shortly (we're polishing that piece in Phase 5)."}</p>
       <p><a class="btn" href="${url}">View My Learning</a></p>
       <p class="meta">Course: ${escapeHtml(course.title)} (${escapeHtml(course.slug)})</p>
     </div>`;
     return { subject, html: envelope('Completion', inner), text: `Nice one, ${profile.full_name || 'there'} — you completed "${course.title}". View your learning: ${url}` };
   }
   if (template === 'enrollment_welcome' && course) {
-    const url = `${payload.base_url || 'https://lms-e4f.pages.dev'}/learn/${course.slug}`;
+    const url = `${baseUrl}/learn/${course.slug}`;
     const subject = `You're enrolled: ${course.title}`;
     const inner = `<div class="body">
       <h1>Welcome aboard, ${name}.</h1>
@@ -106,7 +94,6 @@ function renderTemplate(template: string, payload: Record<string, any>, profile:
     </div>`;
     return { subject, html: envelope('Workshop reminder', inner), text: `Workshop "${payload.title}" starts at ${starts}. Join: ${url}` };
   }
-  // Generic fallback
   const subject = `Cynex: ${template}`;
   const inner = `<div class="body"><h1>${escapeHtml(subject)}</h1><p>${escapeHtml(profile.full_name || 'there')}</p><pre style="font-size:13px;background:#F4F7FA;padding:12px;border-radius:6px;overflow:auto;">${escapeHtml(JSON.stringify(payload, null, 2))}</pre></div>`;
   return { subject, html: envelope(template, inner), text: JSON.stringify(payload) };
@@ -114,27 +101,28 @@ function renderTemplate(template: string, payload: Record<string, any>, profile:
 
 // ---------- HTTP plumbing ----------
 
-async function postgrest<T>(env: Env, path: string, init: RequestInit = {}): Promise<{ data: T; status: number } | { error: any; status: number }> {
+async function postgrest<T>(env: Env, path: string, init: RequestInit = {}): Promise<{ data: T | null; status: number; ok: true } | { ok: false; status: number; error: string }> {
   const headers = new Headers(init.headers || {});
   headers.set('apikey', env.SUPABASE_SERVICE_ROLE_KEY);
   headers.set('Authorization', `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`);
   if (init.body && !headers.has('Content-Type')) headers.set('Content-Type', 'application/json');
   const resp = await fetch(`${env.SUPABASE_URL}${path}`, { ...init, headers });
   const status = resp.status;
-  if (!resp.ok) return { error: await resp.text(), status };
-  const data = resp.status === 204 ? (null as any) : await resp.json();
-  return { data, status };
-}
-
-async function postgrestRpc<T>(env: Env, fn: string, args: Record<string, any>): Promise<{ data: T; status: number } | { error: any; status: number }> {
-  return postgrest<T>(env, `/rest/v1/rpc/${fn}`, { method: 'POST', body: JSON.stringify(args) });
+  if (!resp.ok) {
+    return { ok: false, status, error: (await resp.text()).slice(0, 500) };
+  }
+  let data: any = null;
+  if (status !== 204) {
+    try { data = await resp.json(); } catch { data = null; }
+  }
+  return { data, status, ok: true };
 }
 
 async function sendViaResend(env: Env, to: string, subject: string, html: string, text: string): Promise<{ id: string }> {
   const resp = await fetch('https://api.resend.com/emails', {
     method: 'POST',
     headers: {
-      'Authorization': `Bearer ${env.RESEND_API_KEY}`,
+      Authorization: `Bearer ${env.RESEND_API_KEY}`,
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
@@ -145,32 +133,33 @@ async function sendViaResend(env: Env, to: string, subject: string, html: string
       text,
     }),
   });
-  if (!resp.ok) throw new Error(`resend ${resp.status}: ${await resp.text()}`);
+  if (!resp.ok) throw new Error(`resend ${resp.status}: ${(await resp.text()).slice(0, 500)}`);
   const j = await resp.json() as { id: string };
   return j;
 }
 
-// ---------- One drain pass ----------
+const BASE_URL = 'https://lms-e4f.pages.dev';
 
 async function drainPass(env: Env, log: (m: string) => void): Promise<{ processed: number; sent: number; failed: number }> {
   const pendingRes = await postgrest<Notification[]>(env,
     `/rest/v1/lms_notification_queue?select=id,user_id,template,payload,send_at,attempts&sent_at=is.null&order=send_at&limit=50`,
   );
-  if ('error' in pendingRes) {
-    log(`queue fetch failed: ${pendingRes.status} ${String(pendingRes.error).slice(0, 200)}`);
+  if (!pendingRes.ok) {
+    log(`queue fetch failed: status=${pendingRes.status} error=${pendingRes.error.slice(0, 200)}`);
     return { processed: 0, sent: 0, failed: 0 };
   }
   const items = pendingRes.data || [];
-  log(`pending: ${items.length}`);
+  log(`pending rows: ${items.length}`);
   let sent = 0, failed = 0;
   for (const item of items) {
     try {
-      // Look up profile + (if applicable) course
+      // email + full_name both live on lms_profiles (denormalised from auth.users via trigger).
       const profileRes = await postgrest<Profile[]>(env,
         `/rest/v1/lms_profiles?select=email,full_name&user_id=eq.${encodeURIComponent(item.user_id)}&limit=1`,
       );
-      const profile = ('data' in profileRes && profileRes.data && profileRes.data[0]) || { email: '', full_name: null };
-      if (!profile.email) throw new Error('profile has no email');
+      const email = (profileRes.ok && profileRes.data && profileRes.data[0]?.email) || '';
+      const full_name = (profileRes.ok && profileRes.data && profileRes.data[0]?.full_name) || null;
+      if (!email) throw new Error('profile has no email');
 
       let course: Course | null = null;
       const courseId = item.payload?.course_id;
@@ -178,28 +167,28 @@ async function drainPass(env: Env, log: (m: string) => void): Promise<{ processe
         const cr = await postgrest<Course[]>(env,
           `/rest/v1/lms_courses?select=slug,title,description&id=eq.${encodeURIComponent(courseId)}&limit=1`,
         );
-        course = ('data' in cr && cr.data && cr.data[0]) || null;
+        course = (cr.ok && cr.data && cr.data[0]) || null;
       }
 
-      const { subject, html, text } = renderTemplate(item.template, item.payload || {}, profile, course);
-      const res = await sendViaResend(env, profile.email, subject, html, text);
+      const { subject, html, text } = renderTemplate(item.template, item.payload || {}, { email, full_name }, course, BASE_URL);
+      const res = await sendViaResend(env, email, subject, html, text);
 
       await postgrest(env,
         `/rest/v1/lms_notification_queue?id=eq.${encodeURIComponent(item.id)}`,
         { method: 'PATCH', body: JSON.stringify({ sent_at: new Date().toISOString(), resend_id: res.id }) },
       );
       sent += 1;
-      log(`sent ${item.id} → ${profile.email} (${subject})`);
+      log(`sent id=${item.id} to=${email} subject="${subject}"`);
     } catch (e) {
       failed += 1;
       const attempts = (item.attempts || 0) + 1;
-      const backoffMins = Math.min(60, Math.pow(2, attempts)); // 2,4,8,16,32,60min
+      const backoffMins = Math.min(60, Math.pow(2, attempts));
       const next = new Date(Date.now() + backoffMins * 60_000).toISOString();
       await postgrest(env,
         `/rest/v1/lms_notification_queue?id=eq.${encodeURIComponent(item.id)}`,
         { method: 'PATCH', body: JSON.stringify({ attempts, error: String(e).slice(0, 500), send_at: next }) },
       );
-      log(`fail ${item.id} attempt=${attempts}: ${String(e).slice(0, 160)}`);
+      log(`fail id=${item.id} attempt=${attempts} err=${String(e).slice(0, 200)}`);
     }
   }
   return { processed: items.length, sent, failed };
@@ -208,34 +197,38 @@ async function drainPass(env: Env, log: (m: string) => void): Promise<{ processe
 // ---------- Entry points ----------
 
 export default {
-  // CF cron trigger: every minute
   async scheduled(event: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
     ctx.waitUntil((async () => {
-      const log = (m: string) => console.log(`[cynex-email-drain ${new Date().toISOString()}] ${m}`);
-      const r = await drainPass(env, log);
-      log(`done: processed=${r.processed} sent=${r.sent} failed=${r.failed}`);
+      try {
+        const log = (m: string) => console.log(`[cynex-email-drain ${new Date().toISOString()}] ${m}`);
+        const r = await drainPass(env, log);
+        log(`done processed=${r.processed} sent=${r.sent} failed=${r.failed}`);
+      } catch (e) {
+        console.error(`[cynex-email-drain] fatal: ${String(e)}`);
+      }
     })());
   },
 
-  // Manual / HTTP trigger: shared-secret-gated POST /drain?secret=...
   async fetch(req: Request, env: Env): Promise<Response> {
-    const url = new URL(req.url);
-    if (url.pathname === '/drain') {
-      const secret = url.searchParams.get('secret') || req.headers.get('x-cynex-secret') || '';
-      if (!env.WORKER_SECRET || secret !== env.WORKER_SECRET) {
-        return new Response('forbidden', { status: 403 });
+    try {
+      const url = new URL(req.url);
+      if (url.pathname === '/health') {
+        return new Response(`cynex-email-drain alive\nenv: supabase=${env.SUPABASE_URL ? 'ok' : '?'} service_role=${env.SUPABASE_SERVICE_ROLE_KEY ? env.SUPABASE_SERVICE_ROLE_KEY.slice(0, 8) + '…' : '?'} resend=${env.RESEND_API_KEY ? 'ok' : '?'} work_secret=${env.WORKER_SECRET ? 'ok' : '?'}\nfrom: ${env.EMAIL_FROM_NAME} <${env.EMAIL_FROM_ADDRESS}>`, { status: 200 });
       }
-      const lines: string[] = [];
-      const log = (m: string) => lines.push(`[${new Date().toISOString()}] ${m}`);
-      const r = await drainPass(env, log);
-      return new Response(JSON.stringify({ ok: true, ...r, log: lines }, null, 2), {
-        status: 200,
-        headers: { 'Content-Type': 'application/json' },
-      });
+      if (url.pathname === '/drain') {
+        const secret = url.searchParams.get('secret') || req.headers.get('x-cynex-secret') || '';
+        if (!env.WORKER_SECRET || secret !== env.WORKER_SECRET) {
+          return new Response('forbidden', { status: 403 });
+        }
+        const lines: string[] = [];
+        const log = (m: string) => lines.push(`[${new Date().toISOString()}] ${m}`);
+        const r = await drainPass(env, log);
+        return new Response(JSON.stringify({ ok: true, ...r, log: lines }, null, 2), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      return new Response('not found', { status: 404 });
+    } catch (e) {
+      const err = e as Error;
+      return new Response(JSON.stringify({ ok: false, error: String(e), message: err?.message, stack: err?.stack?.slice(0, 800) }, null, 2), { status: 500, headers: { 'Content-Type': 'application/json' } });
     }
-    if (url.pathname === '/health') {
-      return new Response('cynex-email-drain alive', { status: 200 });
-    }
-    return new Response('not found', { status: 404 });
   },
 };
