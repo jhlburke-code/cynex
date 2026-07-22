@@ -1,5 +1,5 @@
 {
-  "name": "lms",
+  "name": "cynex",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -7,7 +7,7 @@
     "dev": "astro dev",
     "build": "astro build",
     "preview": "astro preview",
-    "deploy": "astro build && wrangler pages deploy ./dist"
+    "deploy": "astro build && wrangler pages deploy ./dist --project-name cynex"
   },
   "dependencies": {
     "@astrojs/cloudflare": "^11.0.0",

@@ -1,6 +1,6 @@
-# LMS — AIINOD Learning Hub
+# Cynex
 
-Small, intuitive Learning Management System for IONOS staff training. Self-enrollment on courses (eLearning widgets, PDFs, YouTube embeds, scheduled workshops). One operator today, expandable to instructors later.
+A small, intuitive Learning Management System for AIINOD staff training. Self-enrollment on courses (eLearning widgets, PDFs, YouTube embeds, scheduled workshops). One operator today, expandable to instructors later.
 
 **Live URL:** _populated on first successful deploy_
 
@@ -9,7 +9,7 @@ Small, intuitive Learning Management System for IONOS staff training. Self-enrol
 - **Frontend + SSR**: Astro 4 with `@astrojs/cloudflare` adapter
 - **Edge**: Cloudflare Pages (server-rendered)
 - **Data + identity**: Supabase (Postgres + Auth + RLS)
-- **Transactional email**: Resend (Phase 2)
+- **Transactional email**: Resend (Phase 2) — sender name **Cynex**
 - **Asset hosting**: Cloudflare R2 (signed URLs)
 - **Workshop recordings**: Google Drive → R2 proxy or Cloudflare Stream
 
@@ -19,16 +19,17 @@ Small, intuitive Learning Management System for IONOS staff training. Self-enrol
 npm install
 cp .env.example .dev.vars
 # fill in SUPABASE_URL, SUPABASE_ANON_KEY
+# (and RESEND_API_KEY for Phase 2)
 npm run dev
 ```
 
 ## Deploy
 
-Configured for Cloudflare Pages — connect the GitHub repo to Pages; Pages reads `.dev.vars` for environment bindings.
+Configured for Cloudflare Pages — project name `cynex`.
 
 ```bash
 npm run build
-npx wrangler pages deploy ./dist --project-name lms
+npx wrangler pages deploy ./dist --project-name cynex
 ```
 
 ## Project structure
@@ -54,11 +55,11 @@ supabase/migrations/         SQL migrations (version-tracked via Supabase)
 
 ## Data model
 
-See `~/Desktop/Hollup/projects/lms/_index.md` §1 for the canonical schema. Tables prefixed `LMS_*` to coexist with the existing `eLearning_*` tables in the same Supabase project.
+See `~/Desktop/Hollup/projects/cynex/_index.md` §1 for the canonical schema. Tables prefixed `lms_*` to coexist with the existing `eLearning_*` tables in the same Supabase project.
 
 ## Admin bootstrap
 
-One row — the operator (jhl.burke@gmail.com) — is granted the `admin` role via JWT email match in `LMS_is_admin()`. RLS policies use that function for admin gates.
+One row — the operator (jhl.burke@gmail.com) — is granted admin via JWT email match in `lms_is_admin()`. RLS policies use that function for admin gates.
 
 ## Phases
 
@@ -69,6 +70,12 @@ One row — the operator (jhl.burke@gmail.com) — is granted the `admin` role v
 | Phase 3 — Admin MVP | CRUD courses + R2 asset upload + bulk-enroll CSV |
 | Phase 4 — Workshops | Workshops CRUD + meeting URLs + reminders |
 | Phase 5 — Polish | Certificate PDF + audit log + tests + accessibility |
+
+## Brand
+
+- **Name:** Cynex
+- **Email sender name:** Cynex
+- **URL slug:** currently `lms-e4f.pages.dev` (Cloudflare subdomain retention; will attach custom `cynex.exploringaiinod.com` in Phase 5)
 
 ## Relationships
 

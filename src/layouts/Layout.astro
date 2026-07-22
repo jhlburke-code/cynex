@@ -3,7 +3,7 @@ interface Props {
   title: string;
   description?: string;
 }
-const { title, description = 'AIINOD Learning Hub' } = Astro.props;
+const { title, description = 'Cynex — AIINOD Learning' } = Astro.props;
 import '../styles/global.css';
 ---
 <!doctype html>
@@ -11,14 +11,14 @@ import '../styles/global.css';
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>{title} — Learning Hub</title>
+    <title>{title} — Cynex</title>
     <meta name="description" content={description} />
   </head>
   <body>
     <header style="background: var(--bg); color: var(--text-on-bg); padding: 16px 24px;">
       <div style="max-width: 1100px; margin: 0 auto; display: flex; align-items: center; justify-content: space-between;">
-        <a href="/" style="color: white; font-weight: 700; font-size: 18px; text-decoration: none;">
-          AIINOD Learning
+        <a href="/" style="color: white; font-weight: 700; font-size: 18px; text-decoration: none; letter-spacing: 0.02em;">
+          Cynex
         </a>
         <nav style="display: flex; gap: 24px;">
           <a href="/catalog" style="color: white;">Catalog</a>
@@ -31,7 +31,7 @@ import '../styles/global.css';
       <slot />
     </main>
     <footer style="margin-top: 64px; padding: 24px; text-align: center; color: var(--text-muted); font-size: 13px;">
-      AIINOD Learning · v0
+      Cynex · v0
     </footer>
   </body>
 </html>
