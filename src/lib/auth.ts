@@ -1,25 +1,26 @@
-import type { APIContext, AstroGlobal } from 'astro';
-import { getCurrentUser, isAdminEmail, clearSessionCookies } from './supabase';
+import type { APIContext } from 'astro';
+import { getCurrentUser, isAdminEmail } from './supabase';
 
 export type CurrentUser = { id: string; email: string };
 
-export interface AdminGateResult {
-  user: CurrentUser;
-}
-export interface AnonGateResult {
-  user: null;
-  redirectTo: string;
-}
+export interface AdminGateResult { user: CurrentUser; }
+export interface AnonGateResult { user: null; redirectTo: string; }
 
-/** Redirect to /login if no session, return early if not admin. */
-export async function requireAdmin(ctx: APIContext | AstroGlobal): Promise<AdminGateResult | Response> {
-  const user = await getCurrentUser(ctx as APIContext);
+/**
+ * SSR gate. Returns {user} on pass, or a 302 Response on fail.
+ * Call from the frontmatter:
+ *
+ *   const gate = await requireAdmin(Astro);
+ *   if (gate instanceof Response) return gate;
+ */
+export async function requireAdmin(ctx: APIContext): Promise<AdminGateResult | Response> {
+  const user = await getCurrentUser(ctx);
   if (!user) {
-    const url = (ctx as APIContext).request?.url || (ctx as AstroGlobal).url.toString();
-    return Response.redirect(new URL('/login?next=' + encodeURIComponent(new URL(url).pathname), new URL(url).origin).toString(), 302);
+    const path = ctx.url?.pathname || '/admin';
+    return ctx.redirect(`/login?next=${encodeURIComponent(path)}`, 302);
   }
   if (!isAdminEmail(user.email)) {
-    return new Response('forbidden — admin only', { status: 403 });
+    return new Response('forbidden — admin only', { status: 403, headers: { 'Content-Type': 'text/plain' } });
   }
   return { user };
 }
