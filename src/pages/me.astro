@@ -9,12 +9,12 @@ if (!user) {
 
 const client = makeAuthenticatedClient(Astro);
 const { data: enrollments } = await client
-  .from('enrollments')
+  .from('lms_enrollments')
   .select(`
     course_id,
     enrolled_at,
     status,
-    courses ( slug, title, content_type )
+    course: lms_courses ( slug, title, content_type )
   `)
   .eq('user_id', user.id)
   .order('enrolled_at', { ascending: false });
@@ -35,9 +35,9 @@ const { data: enrollments } = await client
     {enrollments && enrollments.length > 0 && (
       <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 16px; margin-top: 24px;">
         {enrollments.map((e: any) => (
-          <a href={`/learn/${e.courses.slug}`} class="card" style="display: block; color: inherit;">
-            <span class={`tag tag-${e.courses.content_type}`}>{e.courses.content_type}</span>
-            <h2 style="margin-top: 12px;">{e.courses.title}</h2>
+          <a href={`/learn/${e.course.slug}`} class="card" style="display: block; color: inherit;">
+            <span class={`tag tag-${e.course.content_type}`}>{e.course.content_type}</span>
+            <h2 style="margin-top: 12px;">{e.course.title}</h2>
             <p class="muted" style="font-size: 13px;">Enrolled {new Date(e.enrolled_at).toLocaleDateString()}</p>
           </a>
         ))}

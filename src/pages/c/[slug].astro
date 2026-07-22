@@ -7,7 +7,7 @@ if (!slug) return Astro.redirect('/catalog');
 
 const browser = makeBrowserClient(Astro);
 const { data: course } = await browser
-  .from('courses')
+  .from('lms_courses')
   .select('id, slug, title, description, content_type, asset_url, widget_key, duration_minutes, is_published')
   .eq('slug', slug)
   .eq('is_published', true)
@@ -22,7 +22,7 @@ let alreadyEnrolled = false;
 if (user) {
   const auth = makeAuthenticatedClient(Astro);
   const { data: enr } = await auth
-    .from('enrollments')
+    .from('lms_enrollments')
     .select('user_id')
     .eq('user_id', user.id)
     .eq('course_id', (course as any).id)

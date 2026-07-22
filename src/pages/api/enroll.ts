@@ -16,7 +16,7 @@ export const POST: APIRoute = async (ctx) => {
 
   const client = makeAuthenticatedClient(ctx);
   const { error } = await client
-    .from('enrollments')
+    .from('lms_enrollments')
     .upsert(
       { user_id: user.id, course_id: courseId, enrolled_by: null },
       { onConflict: 'user_id,course_id' },

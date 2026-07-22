@@ -4,7 +4,7 @@ import { makeBrowserClient } from '../lib/supabase';
 
 const client = makeBrowserClient(Astro);
 const { data: courses, error } = await client
-  .from('courses')
+  .from('lms_courses')
   .select('id, slug, title, description, content_type, duration_minutes')
   .eq('is_published', true)
   .order('created_at', { ascending: false });
