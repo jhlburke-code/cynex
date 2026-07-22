@@ -1,6 +1,14 @@
 import type { APIRoute } from 'astro';
 import { makeBrowserClient } from '../../lib/supabase';
 
+function requestOrigin(ctx: any): string {
+  // Cloudflare Pages sits behind a reverse proxy; x-forwarded-proto + host are
+  // the reliable signals. request.url on the Worker comes through as http://localhost.
+  const proto = ctx.request.headers.get('x-forwarded-proto') ?? 'https';
+  const host = ctx.request.headers.get('host') ?? 'lms-e4f.pages.dev';
+  return `${proto}://${host}`;
+}
+
 export const POST: APIRoute = async (ctx) => {
   const form = await ctx.request.formData();
   const email = String(form.get('email') ?? '').trim().toLowerCase();
@@ -15,7 +23,7 @@ export const POST: APIRoute = async (ctx) => {
   }
 
   const client = makeBrowserClient(ctx);
-  const origin = new URL(ctx.request.url).origin;
+  const origin = requestOrigin(ctx);
   const { error } = await client.auth.signInWithOtp({
     email,
     options: {
