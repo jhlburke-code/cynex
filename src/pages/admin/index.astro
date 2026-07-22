@@ -1,0 +1,161 @@
+---
+import AdminLayout from '../../layouts/AdminLayout.astro';
+import { requireAdmin } from '../../lib/auth';
+import { makeAuthenticatedClient, getCurrentUser } from '../../lib/supabase';
+
+const gate = await requireAdmin(Astro);
+if (gate instanceof Response) return gate;
+
+const client = makeAuthenticatedClient(Astro);
+
+// 24h enrollments
+const since24h = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+const { count: enrollments24h } = await client
+  .from('lms_enrollments')
+  .select('id', { count: 'exact', head: true })
+  .gte('enrolled_at', since24h);
+
+// Total counts
+const { count: totalCourses } = await client
+  .from('lms_courses')
+  .select('id', { count: 'exact', head: true });
+const { count: publishedCourses } = await client
+  .from('lms_courses')
+  .select('id', { count: 'exact', head: true })
+  .eq('is_published', true);
+const { count: totalLearners } = await client
+  .from('lms_profiles')
+  .select('user_id', { count: 'exact', head: true })
+  .eq('role', 'learner');
+const { count: completionsAllTime } = await client
+  .from('lms_completions')
+  .select('id', { count: 'exact', head: true });
+
+// Notification queue depth (pending)
+const { count: queuePending } = await client
+  .from('lms_notification_queue')
+  .select('id', { count: 'exact', head: true })
+  .is('sent_at', null);
+const { count: queueSent24h } = await client
+  .from('lms_notification_queue')
+  .select('id', { count: 'exact', head: true })
+  .gte('sent_at', since24h);
+const { count: queueFailed } = await client
+  .from('lms_notification_queue')
+  .select('id', { count: 'exact', head: true })
+  .not('error', 'is', null);
+
+// Today's workshops + this week's workshops
+const now = new Date();
+const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
+const endOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1).toISOString();
+const endOfWeek = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 7).toISOString();
+
+const { data: todaysWorkshops } = await client
+  .from('lms_workshops')
+  .select('course_id, starts_at, ends_at, capacity, lms_courses ( slug, title )')
+  .gte('ends_at', startOfDay)
+  .lt('ends_at', endOfDay)
+  .order('starts_at');
+
+const { data: weeksWorkshops } = await client
+  .from('lms_workshops')
+  .select('course_id, starts_at, ends_at, capacity, lms_courses ( slug, title )')
+  .gte('ends_at', endOfDay)
+  .lt('ends_at', endOfWeek)
+  .order('starts_at');
+
+// Recent enrollments
+const { data: recentEnrollments } = await client
+  .from('lms_enrollments')
+  .select('enrolled_at, lms_profiles ( email, full_name ), lms_courses ( slug, title )')
+  .order('enrolled_at', { ascending: false })
+  .limit(10);
+---
+<AdminLayout title="Dashboard" active="dashboard">
+  <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 16px; margin-bottom: 32px;">
+    <div class="card">
+      <div class="muted" style="font-size: 13px; text-transform: uppercase; letter-spacing: 0.05em;">Learners</div>
+      <div style="font-size: 36px; font-weight: 700; margin: 8px 0 0;">{totalLearners ?? 0}</div>
+    </div>
+    <div class="card">
+      <div class="muted" style="font-size: 13px; text-transform: uppercase; letter-spacing: 0.05em;">Courses</div>
+      <div style="font-size: 36px; font-weight: 700; margin: 8px 0 0;">{publishedCourses ?? 0}<span class="muted" style="font-size: 14px; font-weight: 400;"> / {totalCourses ?? 0}</span></div>
+      <div class="muted" style="font-size: 12px;">published</div>
+    </div>
+    <div class="card">
+      <div class="muted" style="font-size: 13px; text-transform: uppercase; letter-spacing: 0.05em;">Enrollments (24h)</div>
+      <div style="font-size: 36px; font-weight: 700; margin: 8px 0 0;">{enrollments24h ?? 0}</div>
+    </div>
+    <div class="card">
+      <div class="muted" style="font-size: 13px; text-transform: uppercase; letter-spacing: 0.05em;">Completions (all time)</div>
+      <div style="font-size: 36px; font-weight: 700; margin: 8px 0 0;">{completionsAllTime ?? 0}</div>
+    </div>
+    <div class="card">
+      <div class="muted" style="font-size: 13px; text-transform: uppercase; letter-spacing: 0.05em;">Queue pending</div>
+      <div style="font-size: 36px; font-weight: 700; margin: 8px 0 0;">{queuePending ?? 0}</div>
+      <div class="muted" style="font-size: 12px;">{queueSent24h ?? 0} sent (24h), {queueFailed ?? 0} failed</div>
+    </div>
+  </div>
+
+  <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 24px;">
+    <div>
+      <h2>Today</h2>
+      {(!todaysWorkshops || todaysWorkshops.length === 0) ? (
+        <div class="card">
+          <p class="muted" style="margin: 0;">No workshops today.</p>
+        </div>
+      ) : (
+        todaysWorkshops.map((w: any) => (
+          <div class="card" style="margin-bottom: 8px;">
+            <strong>{w.lms_courses.title}</strong>
+            <p class="muted" style="margin: 4px 0 0; font-size: 13px;">
+              {new Date(w.starts_at).toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'})} – {new Date(w.ends_at).toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'})} · capacity {w.capacity ?? '∞'}
+            </p>
+          </div>
+        ))
+      )}
+
+      <h2 style="margin-top: 32px;">This week</h2>
+      {(!weeksWorkshops || weeksWorkshops.length === 0) ? (
+        <div class="card">
+          <p class="muted" style="margin: 0;">No workshops in the next 7 days.</p>
+        </div>
+      ) : (
+        weeksWorkshops.map((w: any) => (
+          <div class="card" style="margin-bottom: 8px;">
+            <strong>{w.lms_courses.title}</strong>
+            <p class="muted" style="margin: 4px 0 0; font-size: 13px;">
+              {new Date(w.starts_at).toLocaleString()}
+            </p>
+          </div>
+        ))
+      )}
+    </div>
+
+    <div>
+      <h2>Recent enrollments</h2>
+      {(!recentEnrollments || recentEnrollments.length === 0) ? (
+        <div class="card">
+          <p class="muted" style="margin: 0;">No enrollments yet.</p>
+        </div>
+      ) : (
+        recentEnrollments.map((e: any) => (
+          <div class="card" style="margin-bottom: 8px; font-size: 14px;">
+            <strong>{e.lms_profiles?.full_name ?? e.lms_profiles?.email ?? 'unknown'}</strong>
+            enrolled in <em>{e.lms_courses.title}</em>
+            <div class="muted" style="font-size: 12px;">{new Date(e.enrolled_at).toLocaleString()}</div>
+          </div>
+        ))
+      )}
+    </div>
+  </div>
+
+  <div style="margin-top: 32px; display: flex; gap: 12px; flex-wrap: wrap;">
+    <a href="/admin/courses" class="btn btn-primary">Manage courses</a>
+    <a href="/admin/courses/new" class="btn btn-secondary">+ New course</a>
+    <a href="/admin/bulk-enroll" class="btn btn-secondary">Bulk enroll</a>
+    <a href="/admin/workshops" class="btn btn-secondary">Workshops</a>
+    <a href="/admin/notifications" class="btn btn-secondary">Notifications</a>
+  </div>
+</AdminLayout>

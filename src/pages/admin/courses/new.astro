@@ -1,0 +1,79 @@
+---
+import AdminLayout from '../../../layouts/AdminLayout.astro';
+import { requireAdmin } from '../../../lib/auth';
+
+const gate = await requireAdmin(Astro);
+if (gate instanceof Response) return gate;
+
+const url = Astro.url;
+const error = url.searchParams.get('error');
+---
+<AdminLayout title="New course" active="courses">
+  <a href="/admin/courses" class="muted" style="font-size: 14px;">← Courses</a>
+
+  {error && (
+    <div class="card" style="background: #FEE; border-color: #B71C1C; margin: 16px 0;">
+      <strong>Failed to create course:</strong> {error}
+    </div>
+  )}
+
+  <form method="POST" action="/api/admin/courses" class="card" style="max-width: 720px; margin-top: 16px;">
+    <label style="display: block; margin-bottom: 16px;">
+      <div style="font-weight: 600; margin-bottom: 6px;">Slug <span style="color: var(--red);">*</span></div>
+      <input type="text" name="slug" required pattern="[a-z0-9][a-z0-9/_-]{2,80}" placeholder="change-management-v1"
+        style="width: 100%; padding: 10px; border: 1px solid #D0D5DD; border-radius: 6px; font-family: ui-monospace, monospace; font-size: 14px;" />
+      <div class="muted" style="font-size: 12px; margin-top: 4px;">Lowercase, hyphens, URL-safe. Used in /c/<em>slug</em>.</div>
+    </label>
+
+    <label style="display: block; margin-bottom: 16px;">
+      <div style="font-weight: 600; margin-bottom: 6px;">Title <span style="color: var(--red);">*</span></div>
+      <input type="text" name="title" required placeholder="Change Management Framework"
+        style="width: 100%; padding: 10px; border: 1px solid #D0D5DD; border-radius: 6px; font-size: 15px;" />
+    </label>
+
+    <label style="display: block; margin-bottom: 16px;">
+      <div style="font-weight: 600; margin-bottom: 6px;">Description</div>
+      <textarea name="description" rows="3" placeholder="A 6-card interactive tour of how core organizational roles shift their focus during transformation."
+        style="width: 100%; padding: 10px; border: 1px solid #D0D5DD; border-radius: 6px; font-family: inherit; font-size: 14px;"></textarea>
+    </label>
+
+    <label style="display: block; margin-bottom: 16px;">
+      <div style="font-weight: 600; margin-bottom: 6px;">Content type <span style="color: var(--red);">*</span></div>
+      <select name="content_type" required style="width: 100%; padding: 10px; border: 1px solid #D0D5DD; border-radius: 6px; font-size: 15px;">
+        <option value="elearning">eLearning (iframe widget)</option>
+        <option value="pdf">PDF</option>
+        <option value="youtube">YouTube embed</option>
+        <option value="workshop">Workshop</option>
+      </select>
+    </label>
+
+    <label style="display: block; margin-bottom: 16px;">
+      <div style="font-weight: 600; margin-bottom: 6px;">Widget key <span class="muted" style="font-weight: 400; font-size: 13px;">(for eLearning only)</span></div>
+      <input type="text" name="widget_key" placeholder="tabbed-content"
+        style="width: 100%; padding: 10px; border: 1px solid #D0D5DD; border-radius: 6px; font-family: ui-monospace, monospace; font-size: 14px;" />
+      <div class="muted" style="font-size: 12px; margin-top: 4px;">Folder under <code>/widgets/&lt;key&gt;/</code>. Deployed at the widget Worker (see spec).</div>
+    </label>
+
+    <label style="display: block; margin-bottom: 16px;">
+      <div style="font-weight: 600; margin-bottom: 6px;">Asset URL <span class="muted" style="font-weight: 400; font-size: 13px;">(for PDF / YouTube / workshop meeting)</span></div>
+      <input type="url" name="asset_url" placeholder="https://elearning-test.jhl-burke.workers.dev/path/to/file.pdf"
+        style="width: 100%; padding: 10px; border: 1px solid #D0D5DD; border-radius: 6px; font-family: ui-monospace, monospace; font-size: 13px;" />
+    </label>
+
+    <label style="display: block; margin-bottom: 16px;">
+      <div style="font-weight: 600; margin-bottom: 6px;">Duration (minutes)</div>
+      <input type="number" name="duration_minutes" min="1" max="600" placeholder="10"
+        style="width: 120px; padding: 10px; border: 1px solid #D0D5DD; border-radius: 6px; font-size: 15px;" />
+    </label>
+
+    <label style="display: flex; gap: 8px; align-items: center; margin-bottom: 16px;">
+      <input type="checkbox" name="is_published" value="1" checked />
+      <span>Publish immediately (otherwise saved as draft)</span>
+    </label>
+
+    <div style="display: flex; gap: 12px;">
+      <button type="submit" class="btn btn-primary">Create</button>
+      <a href="/admin/courses" class="btn btn-secondary">Cancel</a>
+    </div>
+  </form>
+</AdminLayout>

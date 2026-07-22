@@ -1,0 +1,79 @@
+---
+import AdminLayout from '../../../layouts/AdminLayout.astro';
+import { requireAdmin } from '../../../lib/auth';
+import { makeAuthenticatedClient } from '../../../lib/supabase';
+
+const gate = await requireAdmin(Astro);
+if (gate instanceof Response) return gate;
+
+const client = makeAuthenticatedClient(Astro);
+const url = Astro.url;
+const filter = url.searchParams.get('filter') || 'all'; // 'all' | 'published' | 'draft'
+
+let query = client
+  .from('lms_courses')
+  .select('id, slug, title, content_type, is_published, duration_minutes, created_at')
+  .order('created_at', { ascending: false });
+
+if (filter === 'published') query = query.eq('is_published', true);
+if (filter === 'draft') query = query.eq('is_published', false);
+
+const { data: courses, error } = await query;
+---
+<AdminLayout title="Courses" active="courses">
+  <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px;">
+    <div style="display: flex; gap: 8px;">
+      <a href="/admin/courses" class={`btn ${filter === 'all' ? 'btn-primary' : 'btn-secondary'}`}>All</a>
+      <a href="/admin/courses?filter=published" class={`btn ${filter === 'published' ? 'btn-primary' : 'btn-secondary'}`}>Published</a>
+      <a href="/admin/courses?filter=draft" class={`btn ${filter === 'draft' ? 'btn-primary' : 'btn-secondary'}`}>Drafts</a>
+    </div>
+    <a href="/admin/courses/new" class="btn btn-primary">+ New course</a>
+  </div>
+
+  {error && (
+    <div class="card" style="background: #FEE; border-color: #B71C1C;">
+      <strong>Failed to load courses</strong>
+      <p class="muted" style="margin: 8px 0 0;">{error.message}</p>
+    </div>
+  )}
+
+  {!error && (!courses || courses.length === 0) && (
+    <div class="card">
+      <p class="muted" style="margin: 0;">No courses in this filter yet. <a href="/admin/courses/new">Create one.</a></p>
+    </div>
+  )}
+
+  {!error && courses && courses.length > 0 && (
+    <table style="width: 100%; border-collapse: collapse; background: white; border: 1px solid #E5E9F0; border-radius: 8px; overflow: hidden;">
+      <thead>
+        <tr style="background: var(--bg-3);">
+          <th style="text-align: left; padding: 12px; font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted);">Slug</th>
+          <th style="text-align: left; padding: 12px; font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted);">Title</th>
+          <th style="text-align: left; padding: 12px; font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted);">Type</th>
+          <th style="text-align: left; padding: 12px; font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted);">Duration</th>
+          <th style="text-align: left; padding: 12px; font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted);">Status</th>
+          <th style="text-align: right; padding: 12px; font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted);">Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {courses.map((c: any) => (
+          <tr style="border-top: 1px solid #E5E9F0;">
+            <td style="padding: 12px; font-family: ui-monospace, monospace; font-size: 13px;">{c.slug}</td>
+            <td style="padding: 12px;">{c.title}</td>
+            <td style="padding: 12px;"><span class={`tag tag-${c.content_type}`}>{c.content_type}</span></td>
+            <td style="padding: 12px;">{c.duration_minutes ? `${c.duration_minutes} min` : '—'}</td>
+            <td style="padding: 12px;">
+              {c.is_published
+                ? <span style="color: #1B5E20; font-weight: 600;">● published</span>
+                : <span style="color: var(--text-muted);">○ draft</span>
+              }
+            </td>
+            <td style="padding: 12px; text-align: right;">
+              <a href={`/admin/courses/${c.id}`} class="btn btn-secondary" style="font-size: 13px;">Edit</a>
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  )}
+</AdminLayout>

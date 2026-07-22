@@ -1,0 +1,109 @@
+---
+import AdminLayout from '../../../layouts/AdminLayout.astro';
+import { requireAdmin } from '../../../lib/auth';
+import { makeAuthenticatedClient } from '../../../lib/supabase';
+
+const gate = await requireAdmin(Astro);
+if (gate instanceof Response) return gate;
+
+const { id } = Astro.params;
+if (!id) return new Response('missing id', { status: 400 });
+
+const client = makeAuthenticatedClient(Astro);
+
+const { data: course, error } = await client
+  .from('lms_courses')
+  .select('*')
+  .eq('id', id)
+  .maybeSingle();
+
+if (error || !course) return new Response('not found', { status: 404 });
+
+const url = Astro.url;
+const errorMsg = url.searchParams.get('error');
+const savedFlag = url.searchParams.get('saved') === '1';
+---
+<AdminLayout title={`Edit: ${course.title}`} active="courses">
+  <a href="/admin/courses" class="muted" style="font-size: 14px;">← Courses</a>
+
+  {errorMsg && (
+    <div class="card" style="background: #FEE; border-color: #B71C1C; margin: 16px 0;">
+      <strong>Save failed:</strong> {errorMsg}
+    </div>
+  )}
+  {savedFlag && (
+    <div class="card" style="background: #E8F5E9; border-color: #1B5E20; margin: 16px 0;">
+      <strong>✓ Saved.</strong>
+    </div>
+  )}
+
+  <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 24px; margin-top: 16px;">
+    <form method="POST" action={`/api/admin/courses/${course.id}`} class="card">
+      <input type="hidden" name="_method" value="PATCH" />
+
+      <label style="display: block; margin-bottom: 16px;">
+        <div style="font-weight: 600; margin-bottom: 6px;">Slug</div>
+        <input type="text" name="slug" required value={course.slug}
+          style="width: 100%; padding: 10px; border: 1px solid #D0D5DD; border-radius: 6px; font-family: ui-monospace, monospace; font-size: 14px;" />
+      </label>
+
+      <label style="display: block; margin-bottom: 16px;">
+        <div style="font-weight: 600; margin-bottom: 6px;">Title</div>
+        <input type="text" name="title" required value={course.title}
+          style="width: 100%; padding: 10px; border: 1px solid #D0D5DD; border-radius: 6px; font-size: 15px;" />
+      </label>
+
+      <label style="display: block; margin-bottom: 16px;">
+        <div style="font-weight: 600; margin-bottom: 6px;">Description</div>
+        <textarea name="description" rows="3"
+          style="width: 100%; padding: 10px; border: 1px solid #D0D5DD; border-radius: 6px; font-family: inherit; font-size: 14px;">{course.description ?? ''}</textarea>
+      </label>
+
+      <label style="display: block; margin-bottom: 16px;">
+        <div style="font-weight: 600; margin-bottom: 6px;">Widget key <span class="muted" style="font-weight: 400; font-size: 13px;">(eLearning)</span></div>
+        <input type="text" name="widget_key" value={course.widget_key ?? ''}
+          style="width: 100%; padding: 10px; border: 1px solid #D0D5DD; border-radius: 6px; font-family: ui-monospace, monospace; font-size: 14px;" />
+      </label>
+
+      <label style="display: block; margin-bottom: 16px;">
+        <div style="font-weight: 600; margin-bottom: 6px;">Asset URL</div>
+        <input type="url" name="asset_url" value={course.asset_url ?? ''}
+          style="width: 100%; padding: 10px; border: 1px solid #D0D5DD; border-radius: 6px; font-family: ui-monospace, monospace; font-size: 13px;" />
+      </label>
+
+      <label style="display: block; margin-bottom: 16px;">
+        <div style="font-weight: 600; margin-bottom: 6px;">Duration (minutes)</div>
+        <input type="number" name="duration_minutes" min="1" max="600" value={course.duration_minutes ?? ''}
+          style="width: 120px; padding: 10px; border: 1px solid #D0D5DD; border-radius: 6px; font-size: 15px;" />
+      </label>
+
+      <label style="display: flex; gap: 8px; align-items: center; margin-bottom: 24px;">
+        <input type="checkbox" name="is_published" value="1" checked={course.is_published} />
+        <span>Published</span>
+      </label>
+
+      <div style="display: flex; gap: 12px;">
+        <button type="submit" class="btn btn-primary">Save</button>
+        <a href={`/c/${course.slug}`} class="btn btn-secondary" target="_blank">View as learner →</a>
+      </div>
+    </form>
+
+    <div>
+      <div class="card" style="margin-bottom: 16px;">
+        <h2 style="margin-top: 0; font-size: 16px;">Metadata</h2>
+        <div class="muted" style="font-size: 13px;">
+          Created {new Date(course.created_at).toLocaleDateString()}<br/>
+          Updated {new Date(course.updated_at).toLocaleDateString()}<br/>
+          Type: <span class={`tag tag-${course.content_type}`}>{course.content_type}</span>
+        </div>
+      </div>
+
+      <div class="card" style="border-color: #B71C1C;">
+        <h2 style="margin-top: 0; font-size: 16px; color: #B71C1C;">Danger zone</h2>
+        <form method="POST" action={`/api/admin/courses/${course.id}/delete`} onsubmit="return confirm('Delete this course? This removes enrollments too.');">
+          <button type="submit" class="btn btn-secondary" style="border-color: #B71C1C; color: #B71C1C;">Delete course</button>
+        </form>
+      </div>
+    </div>
+  </div>
+</AdminLayout>

@@ -1,0 +1,61 @@
+---
+interface Props {
+  title: string;
+  active: 'dashboard' | 'courses' | 'users' | 'bulk-enroll' | 'workshops' | 'notifications';
+}
+const { title, active } = Astro.props as any;
+import '../styles/global.css';
+
+const nav: { href: string; label: string; key: string }[] = [
+  { href: '/admin', label: 'Dashboard', key: 'dashboard' },
+  { href: '/admin/courses', label: 'Courses', key: 'courses' },
+  { href: '/admin/bulk-enroll', label: 'Bulk enroll', key: 'bulk-enroll' },
+  { href: '/admin/workshops', label: 'Workshops', key: 'workshops' },
+  { href: '/admin/users', label: 'Users', key: 'users' },
+  { href: '/admin/notifications', label: 'Notifications', key: 'notifications' },
+];
+---
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>{title} — Cynex Admin</title>
+  </head>
+  <body>
+    <header style="background: var(--bg); color: var(--text-on-bg); padding: 16px 24px;">
+      <div style="max-width: 1200px; margin: 0 auto; display: flex; align-items: center; justify-content: space-between;">
+        <div>
+          <a href="/admin" style="color: white; font-weight: 700; font-size: 18px; text-decoration: none;">Cynex · Admin</a>
+        </div>
+        <div style="display: flex; gap: 16px; align-items: center;">
+          <a href="/" style="color: rgba(255,255,255,0.7); font-size: 14px;">← App</a>
+          <a href="/api/admin/logout" style="color: rgba(255,255,255,0.7); font-size: 14px;">Sign out</a>
+        </div>
+      </div>
+    </header>
+
+    <div style="max-width: 1200px; margin: 0 auto; padding: 24px;">
+      <nav style="display: flex; gap: 4px; margin-bottom: 24px; border-bottom: 1px solid #E5E9F0;">
+        {nav.map((n) => (
+          <a
+            href={n.href}
+            style={`padding: 12px 16px; text-decoration: none; color: ${active === n.key ? 'var(--red)' : 'var(--text-muted)'}; font-weight: 600; border-bottom: 2px solid ${active === n.key ? 'var(--red)' : 'transparent'}; margin-bottom: -1px;`}
+          >
+            {n.label}
+          </a>
+        ))}
+      </nav>
+
+      <h1 style="margin-top: 0;">{title}</h1>
+
+      <main>
+        <slot />
+      </main>
+    </div>
+
+    <footer style="margin-top: 64px; padding: 24px; text-align: center; color: var(--text-muted); font-size: 13px; border-top: 1px solid #E5E9F0;">
+      Cynex Admin · v0
+    </footer>
+  </body>
+</html>

@@ -1,0 +1,42 @@
+---
+import AdminLayout from '../../layouts/AdminLayout.astro';
+import { requireAdmin } from '../../lib/auth';
+import { makeServiceRoleClient } from '../../lib/supabase';
+
+const gate = await requireAdmin(Astro);
+if (gate instanceof Response) return gate;
+
+const admin = makeServiceRoleClient(Astro);
+const { data: profiles } = admin ? await admin
+  .from('lms_profiles')
+  .select('user_id, full_name, email, role, created_at')
+  .order('created_at', { ascending: false })
+  .limit(50) : { data: [] as any[] };
+---
+<AdminLayout title="Users" active="users">
+  {(!admin || !profiles || profiles.length === 0) && (
+    <div class="card"><p class="muted" style="margin: 0;">{admin ? 'No users yet.' : 'Service-role client not configured. Set SUPABASE_SERVICE_ROLE_KEY in env vars.'}</p></div>
+  )}
+  {admin && profiles && profiles.length > 0 && (
+    <table style="width: 100%; border-collapse: collapse; background: white; border: 1px solid #E5E9F0; border-radius: 8px; overflow: hidden; font-size: 14px;">
+      <thead>
+        <tr style="background: var(--bg-3);">
+          <th style="text-align: left; padding: 12px; font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted);">Email</th>
+          <th style="text-align: left; padding: 12px; font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted);">Name</th>
+          <th style="text-align: left; padding: 12px; font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted);">Role</th>
+          <th style="text-align: left; padding: 12px; font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted);">Joined</th>
+        </tr>
+      </thead>
+      <tbody>
+        {profiles.map((p: any) => (
+          <tr style="border-top: 1px solid #E5E9F0;">
+            <td style="padding: 12px; font-family: ui-monospace, monospace; font-size: 13px;">{p.email || '—'}</td>
+            <td style="padding: 12px;">{p.full_name || '—'}</td>
+            <td style="padding: 12px;"><span class={`tag ${p.role === 'admin' ? 'tag-elearning' : ''}`}>{p.role}</span></td>
+            <td style="padding: 12px;">{new Date(p.created_at).toLocaleDateString()}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  )}
+</AdminLayout>

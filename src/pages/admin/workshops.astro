@@ -1,0 +1,14 @@
+---
+import AdminLayout from '../../layouts/AdminLayout.astro';
+import { requireAdmin } from '../../lib/auth';
+
+const gate = await requireAdmin(Astro);
+if (gate instanceof Response) return gate;
+---
+<AdminLayout title="Workshops" active="workshops">
+  <div class="card">
+    <h2 style="margin-top: 0; color: var(--red);">Phase 4 — coming</h2>
+    <p class="muted" style="margin: 0;">Workshop scheduling, meeting URLs, capacity, and reminder emails (T-24h / T-1h) land in Phase 4.
+    The schema is already in place (see <code>lms_workshops</code>).</p>
+  </div>
+</AdminLayout>

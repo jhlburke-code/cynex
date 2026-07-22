@@ -80,6 +80,17 @@ export async function getCurrentUser(ctx: APIContext): Promise<{ id: string; ema
   return { id: user.id, email: user.email ?? '' };
 }
 
+// Service-role client for admin operations (auth.admin.*, RLS bypass).
+// Use sparingly — only in server endpoints gated by requireAdmin.
+export function makeServiceRoleClient(ctx: APIContext): SupabaseClient | null {
+  const url = ctx.locals.runtime.env.SUPABASE_URL;
+  const key = ctx.locals.runtime.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!url || !key) return null;
+  return createClient(url, key, {
+    auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
+  });
+}
+
 // Server-side query helper: postgrest GET with the user's access token.
 export async function authenticatedFetch(
   ctx: APIContext,

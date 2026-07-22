@@ -1,0 +1,63 @@
+---
+import AdminLayout from '../../../layouts/AdminLayout.astro';
+import { requireAdmin } from '../../../lib/auth';
+import { makeAuthenticatedClient } from '../../../lib/supabase';
+
+const gate = await requireAdmin(Astro);
+if (gate instanceof Response) return gate;
+
+const client = makeAuthenticatedClient(Astro);
+
+const { data: courses } = await client
+  .from('lms_courses')
+  .select('id, slug, title, is_published')
+  .order('title');
+
+const url = Astro.url;
+const error = url.searchParams.get('error');
+const summary = url.searchParams.get('summary');
+---
+<AdminLayout title="Bulk enroll" active="bulk-enroll">
+  <a href="/admin" class="muted" style="font-size: 14px;">← Dashboard</a>
+  <p class="muted">CSV with a column called <code>email</code> (also accepts <code>Email</code>, <code>e-mail</code>, <code>email_address</code>). Extra columns are ignored.</p>
+
+  {error && (
+    <div class="card" style="background: #FEE; border-color: #B71C1C; margin: 16px 0;">
+      <strong>Error:</strong> {error}
+    </div>
+  )}
+
+  {summary && (
+    <div class="card" style="background: #E8F5E9; border-color: #1B5E20; margin: 16px 0;">
+      <strong>✓ Done.</strong> {summary}
+    </div>
+  )}
+
+  <form method="POST" action="/api/admin/bulk-enroll/preview" enctype="multipart/form-data" class="card" style="max-width: 720px; margin-top: 16px;">
+    <label style="display: block; margin-bottom: 16px;">
+      <div style="font-weight: 600; margin-bottom: 6px;">Course <span style="color: var(--red);">*</span></div>
+      <select name="course_id" required style="width: 100%; padding: 10px; border: 1px solid #D0D5DD; border-radius: 6px; font-size: 15px;">
+        <option value="">— select a course —</option>
+        {courses?.map((c: any) => (
+          <option value={c.id}>{c.is_published ? '✓ ' : '○ '}{c.title} ({c.slug})</option>
+        ))}
+      </select>
+    </label>
+
+    <label style="display: block; margin-bottom: 16px;">
+      <div style="font-weight: 600; margin-bottom: 6px;">CSV file</div>
+      <input type="file" name="csv" required accept=".csv,text/csv,text/plain"
+        style="width: 100%; padding: 10px; border: 1px solid #D0D5DD; border-radius: 6px;" />
+    </label>
+
+    <details style="margin-bottom: 16px;">
+      <summary style="cursor: pointer; color: var(--text-muted); font-size: 13px;">Or paste emails (one per line, or comma- or space-separated)</summary>
+      <textarea name="emails_paste" rows="6" placeholder="alex@example.com&#10;jane@example.com, bob@example.com"
+        style="width: 100%; margin-top: 8px; padding: 10px; border: 1px solid #D0D5DD; border-radius: 6px; font-family: ui-monospace, monospace; font-size: 13px;"></textarea>
+    </details>
+
+    <div style="display: flex; gap: 12px;">
+      <button type="submit" class="btn btn-primary">Preview diff</button>
+    </div>
+  </form>
+</AdminLayout>

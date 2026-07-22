@@ -1,0 +1,63 @@
+---
+import AdminLayout from '../../layouts/AdminLayout.astro';
+import { requireAdmin } from '../../lib/auth';
+import { makeAuthenticatedClient } from '../../lib/supabase';
+
+const gate = await requireAdmin(Astro);
+if (gate instanceof Response) return gate;
+
+const client = makeAuthenticatedClient(Astro);
+
+const { data: items } = await client
+  .from('lms_notification_queue')
+  .select('id, template, send_at, sent_at, attempts, error, lms_profiles ( email, full_name )')
+  .order('id', { ascending: false })
+  .limit(50);
+
+const pending = items?.filter((i: any) => !i.sent_at) || [];
+const sent = items?.filter((i: any) => i.sent_at) || [];
+const failed = items?.filter((i: any) => i.error) || [];
+---
+<AdminLayout title="Notifications" active="notifications">
+  <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-bottom: 24px;">
+    <div class="card"><div class="muted" style="font-size: 13px; text-transform: uppercase;">Pending</div><div style="font-size: 32px; font-weight: 700;">{pending.length}</div></div>
+    <div class="card"><div class="muted" style="font-size: 13px; text-transform: uppercase;">Sent (recent)</div><div style="font-size: 32px; font-weight: 700;">{sent.length}</div></div>
+    <div class="card"><div class="muted" style="font-size: 13px; text-transform: uppercase;">Failed</div><div style="font-size: 32px; font-weight: 700;">{failed.length}</div></div>
+  </div>
+
+  {(!items || items.length === 0) && (
+    <div class="card"><p class="muted" style="margin: 0;">No notifications queued yet. Complete a course to see one.</p></div>
+  )}
+
+  {items && items.length > 0 && (
+    <table style="width: 100%; border-collapse: collapse; background: white; border: 1px solid #E5E9F0; border-radius: 8px; overflow: hidden; font-size: 13px;">
+      <thead>
+        <tr style="background: var(--bg-3);">
+          <th style="text-align: left; padding: 10px;">Template</th>
+          <th style="text-align: left; padding: 10px;">To</th>
+          <th style="text-align: left; padding: 10px;">Status</th>
+          <th style="text-align: left; padding: 10px;">Attempts</th>
+          <th style="text-align: left; padding: 10px;">When</th>
+        </tr>
+      </thead>
+      <tbody>
+        {items.map((i: any) => (
+          <tr style="border-top: 1px solid #E5E9F0;">
+            <td style="padding: 10px; font-family: ui-monospace, monospace;">{i.template}</td>
+            <td style="padding: 10px;">{i.lms_profiles?.email || '—'}</td>
+            <td style="padding: 10px;">
+              {i.sent_at
+                ? <span style="color: #1B5E20;">● sent</span>
+                : i.error
+                  ? <span style="color: #B71C1C;">× failed</span>
+                  : <span style="color: var(--text-muted);">○ pending</span>
+              }
+            </td>
+            <td style="padding: 10px;">{i.attempts}</td>
+            <td style="padding: 10px;">{new Date(i.send_at).toLocaleString()}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  )}
+</AdminLayout>
