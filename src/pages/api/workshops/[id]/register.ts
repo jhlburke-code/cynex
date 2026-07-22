@@ -7,7 +7,7 @@ export const POST: APIRoute = async (ctx) => {
 
   const user = await getCurrentUser(ctx);
   if (!user) {
-    return ctx.redirect(`/login?next=/learn/workshop-${courseId}`);
+    return ctx.redirect(`/login?next=/workshops/${courseId}`);
   }
 
   const admin = makeServiceRoleClient(ctx);
@@ -15,22 +15,23 @@ export const POST: APIRoute = async (ctx) => {
     return new Response('service_role not configured', { status: 500 });
   }
 
-  // Workshop exists + capacity check
-  const { data: ws } = await admin
+  // Workshop + course lookup (we need slug for redirect)
+  const { data: row } = await admin
     .from('lms_workshops')
-    .select('course_id, capacity, starts_at')
+    .select('course_id, capacity, starts_at, lms_courses ( slug )')
     .eq('course_id', courseId)
     .maybeSingle();
 
-  if (!ws) return ctx.redirect(`/c/${courseId}`);
+  if (!row || !row.lms_courses) return ctx.redirect(`/catalog`);
+  const slug = (row.lms_courses as any).slug;
 
-  if (ws.capacity != null) {
+  if (row.capacity != null) {
     const { count } = await admin
       .from('lms_enrollments')
       .select('user_id', { count: 'exact', head: true })
       .eq('course_id', courseId);
-    if ((count || 0) >= ws.capacity) {
-      return ctx.redirect(`/c/${courseId}#workshop-full`);
+    if ((count || 0) >= row.capacity) {
+      return ctx.redirect(`/c/${slug}#workshop-full`);
     }
   }
 
@@ -42,5 +43,5 @@ export const POST: APIRoute = async (ctx) => {
       { onConflict: 'user_id,course_id' },
     );
 
-  return ctx.redirect(`/learn/${courseId}`);
+  return ctx.redirect(`/learn/${slug}`);
 };
