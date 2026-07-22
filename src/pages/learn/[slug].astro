@@ -6,9 +6,7 @@ const { slug } = Astro.params;
 if (!slug) return Astro.redirect('/catalog');
 
 const user = await getCurrentUser(Astro);
-if (!user) {
-  return Astro.redirect(`/login?next=/c/${slug}`);
-}
+if (!user) return Astro.redirect(`/login?next=/c/${slug}`);
 
 const browser = makeBrowserClient(Astro);
 const { data: course } = await browser
@@ -22,30 +20,45 @@ if (!course) return new Response('Not found', { status: 404 });
 const auth = makeAuthenticatedClient(Astro);
 const { data: enr } = await auth
   .from('lms_enrollments')
-  .select('user_id')
+  .select('user_id, status')
   .eq('user_id', user.id)
   .eq('course_id', (course as any).id)
   .maybeSingle();
 if (!enr) return Astro.redirect(`/c/${slug}`);
+
+// Check if already completed for the UI state
+const { data: existingCompletion } = await auth
+  .from('lms_completions')
+  .select('id, completed_at')
+  .eq('user_id', user.id)
+  .eq('course_id', (course as any).id)
+  .maybeSingle();
+const alreadyCompleted = !!existingCompletion;
+
+const completionMessage = alreadyCompleted
+  ? `You already completed this course on ${new Date(existingCompletion!.completed_at).toLocaleDateString()}.`
+  : '';
 ---
 <Layout title={course.title}>
   <section class="container">
     <a href="/me" class="muted" style="font-size: 14px;">← My learning</a>
     <h1 style="margin-top: 16px;">{course.title}</h1>
 
-    <div class="card" style="margin-top: 24px; padding: 0; overflow: hidden;">
+    <div id="cynex-course-message" style="margin-top: 16px;"></div>
+
+    <div class="card" style="margin-top: 8px; padding: 0; overflow: hidden;">
       {course.content_type === 'elearning' && course.widget_key && (
         <iframe
+          id="cynex-widget-frame"
+          data-course-id={course.id}
+          data-course-slug={course.slug}
           src={`https://elearning-test.jhl-burke.workers.dev/widgets/${course.widget_key}/index.html`}
           style="width: 100%; min-height: 600px; border: 0;"
           allow="clipboard-write"
         ></iframe>
       )}
       {course.content_type === 'pdf' && course.asset_url && (
-        <iframe
-          src={course.asset_url}
-          style="width: 100%; min-height: 800px; border: 0;"
-        ></iframe>
+        <iframe src={course.asset_url} style="width: 100%; min-height: 800px; border: 0;"></iframe>
       )}
       {course.content_type === 'youtube' && course.asset_url && (
         <div style="position: relative; padding-bottom: 56.25%; height: 0;">
@@ -64,5 +77,56 @@ if (!enr) return Astro.redirect(`/c/${slug}`);
         </div>
       )}
     </div>
+
+    {alreadyCompleted && (
+      <div class="card" style="margin-top: 16px; background: #E8F5E9; border-color: #1B5E20;">
+        <strong>✓ Already completed.</strong>
+        <p class="muted" style="margin: 8px 0 0;">{completionMessage}</p>
+      </div>
+    )}
   </section>
+
+  <script is:inline>
+    (() => {
+      const frame = document.getElementById('cynex-widget-frame');
+      const msgBox = document.getElementById('cynex-course-message');
+      if (!frame || !msgBox) return;
+      const courseId = frame.getAttribute('data-course-id');
+      const slug = frame.getAttribute('data-course-slug');
+
+      const show = (text, ok = true) => {
+        msgBox.innerHTML = `<div class="card" style="background:${ok ? '#E8F5E9' : '#FEE'};border-color:${ok ? '#1B5E20' : '#B71C1C'};"><p style="margin:0;">${text}</p></div>`;
+      };
+
+      let inFlight = false;
+
+      window.addEventListener('message', async (event) => {
+        // Only accept messages from our widget origin
+        if (!event.origin || !event.origin.endsWith('.workers.dev')) return;
+        if (!event.data || event.data.type !== 'complete') return;
+        if (inFlight) return;
+        inFlight = true;
+
+        show('Saving your completion…');
+
+        try {
+          const r = await fetch('/api/complete', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ course_id: courseId, slug, method: 'iframe_postmessage' }),
+          });
+          const j = await r.json();
+          if (j.ok) {
+            show('✓ Course completed. We\'ll email you a certificate link shortly.');
+          } else {
+            show('Couldn\\'t save completion: ' + (j.message || 'unknown'), false);
+          }
+        } catch (e) {
+          show('Network error saving completion.', false);
+        } finally {
+          inFlight = false;
+        }
+      });
+    })();
+  </script>
 </Layout>
