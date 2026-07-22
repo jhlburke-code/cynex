@@ -1,21 +1,21 @@
 ---
 import Layout from '../../layouts/Layout.astro';
 import { makeBrowserClient, makeAuthenticatedClient, makeServiceRoleClient, isAdminEmail, getCurrentUser } from '../../lib/supabase';
+import { resolveCourse } from '../../lib/course-resolve';
 
-const { slug } = Astro.params;
-if (!slug) return Astro.redirect('/catalog');
+const { slug: hint } = Astro.params;
+if (!hint) return Astro.redirect('/catalog');
 
-const browser = makeBrowserClient(Astro);
-const { data: course } = await browser
-  .from('lms_courses')
-  .select('id, slug, title, description, content_type, asset_url, widget_key, duration_minutes, is_published')
-  .eq('slug', slug)
-  .eq('is_published', true)
-  .maybeSingle();
-
-if (!course) {
+// Defensive UUID-alias: hint may be either a slug or a UUID.
+// If it's a UUID, look up the course and redirect to /c/<canonical-slug>.
+const resolved = await resolveCourse(Astro, hint);
+if (!resolved || !resolved.course.is_published) {
   return new Response('Not found', { status: 404 });
 }
+if (resolved.slug !== hint) {
+  return Astro.redirect(`/c/${resolved.slug}`, 302);
+}
+const course = resolved.course;
 
 const user = await getCurrentUser(Astro);
 let alreadyEnrolled = false;

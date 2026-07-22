@@ -1,21 +1,21 @@
 ---
 import Layout from '../../layouts/Layout.astro';
 import { makeBrowserClient, makeAuthenticatedClient, makeServiceRoleClient, getCurrentUser } from '../../lib/supabase';
+import { resolveCourse } from '../../lib/course-resolve';
 
-const { slug } = Astro.params;
-if (!slug) return Astro.redirect('/catalog');
+const { slug: hint } = Astro.params;
+if (!hint) return Astro.redirect('/catalog');
 
 const user = await getCurrentUser(Astro);
-if (!user) return Astro.redirect(`/login?next=/c/${slug}`);
+if (!user) return Astro.redirect(`/login?next=/c/${hint}`);
 
-const browser = makeBrowserClient(Astro);
-const { data: course } = await browser
-  .from('lms_courses')
-  .select('id, slug, title, content_type, asset_url, widget_key, duration_minutes')
-  .eq('slug', slug)
-  .maybeSingle();
-
-if (!course) return new Response('Not found', { status: 404 });
+// Defensive UUID-alias: if hint is a UUID, redirect to canonical slug.
+const resolved = await resolveCourse(Astro, hint);
+if (!resolved) return new Response('Not found', { status: 404 });
+if (resolved.slug !== hint) {
+  return Astro.redirect(`/learn/${resolved.slug}`, 302);
+}
+const course = resolved.course;
 
 const auth = makeAuthenticatedClient(Astro);
 const { data: enr } = await auth
