@@ -35,8 +35,8 @@ const { data: existingCompletion } = await auth
   .maybeSingle();
 const alreadyCompleted = !!existingCompletion;
 
-const completionMessage = alreadyCompleted
-  ? `You already completed this course on ${new Date(existingCompletion!.completed_at).toLocaleDateString()}.`
+const completionMessage = alreadyCompleted && existingCompletion
+  ? `You already completed this course on ${new Date(existingCompletion.completed_at).toLocaleDateString()}.`
   : '';
 ---
 <Layout title={course.title}>
@@ -88,45 +88,55 @@ const completionMessage = alreadyCompleted
 
   <script is:inline>
     (() => {
+      const log = (m) => {
+        try { console.log('[cynex-learn]', m); } catch {}
+      };
       const frame = document.getElementById('cynex-widget-frame');
       const msgBox = document.getElementById('cynex-course-message');
+      log('boot — frame=' + (frame ? frame.id : 'NULL') + ' msgBox=' + (msgBox ? msgBox.id : 'NULL'));
       if (!frame || !msgBox) return;
       const courseId = frame.getAttribute('data-course-id');
       const slug = frame.getAttribute('data-course-slug');
+      log('attrs: courseId=' + courseId + ' slug=' + slug);
 
-      const show = (text, ok = true) => {
-        msgBox.innerHTML = `<div class="card" style="background:${ok ? '#E8F5E9' : '#FEE'};border-color:${ok ? '#1B5E20' : '#B71C1C'};"><p style="margin:0;">${text}</p></div>`;
+      const show = (text, ok) => {
+        ok = (ok === undefined) ? true : ok;
+        msgBox.innerHTML = '<div class="card" style="background:' + (ok ? '#E8F5E9' : '#FEE') + ';border-color:' + (ok ? '#1B5E20' : '#B71C1C') + ';"><p style="margin:0;">' + text + '</p></div>';
       };
 
       let inFlight = false;
 
       window.addEventListener('message', async (event) => {
-        // Only accept messages from our widget origin
-        if (!event.origin || !event.origin.endsWith('.workers.dev')) return;
-        if (!event.data || event.data.type !== 'complete') return;
-        if (inFlight) return;
+        log('msg event — origin=' + event.origin + ' data=' + JSON.stringify(event.data));
+        if (!event.origin || !event.origin.endsWith('.workers.dev')) { log('  reject: origin'); return; }
+        if (!event.data || event.data.type !== 'complete') { log('  reject: shape'); return; }
+        if (inFlight) { log('  reject: in-flight'); return; }
         inFlight = true;
 
         show('Saving your completion…');
-
+        log('  POST /api/complete courseId=' + courseId);
         try {
           const r = await fetch('/api/complete', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ course_id: courseId, slug, method: 'iframe_postmessage' }),
+            body: JSON.stringify({ course_id: courseId, slug: slug, method: 'iframe_postmessage' }),
           });
           const j = await r.json();
+          log('  response: ' + r.status + ' ' + JSON.stringify(j));
           if (j.ok) {
-            show('✓ Course completed. We\'ll email you a certificate link shortly.');
+            show('Course completed. We will email you a certificate link shortly.');
           } else {
-            show('Couldn\\'t save completion: ' + (j.message || 'unknown'), false);
+            show("Couldn't save completion: " + (j.message || 'unknown'), false);
           }
         } catch (e) {
+          log('  EXCEPTION: ' + String(e));
           show('Network error saving completion.', false);
         } finally {
           inFlight = false;
         }
       });
+
+      log('listener registered');
     })();
   </script>
 </Layout>
