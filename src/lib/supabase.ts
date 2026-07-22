@@ -2,7 +2,7 @@ import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import type { APIContext } from 'astro';
 
 const ADMIN_EMAILS = new Set<string>([
-  'jhl.burke@gmail.com', // operator bootstrap — see supabase/migrations/0002_admin_email.sql
+  'jhl.burke@gmail.com', // operator bootstrap
 ]);
 
 export function isAdminEmail(email: string | null | undefined): boolean {
@@ -10,8 +10,25 @@ export function isAdminEmail(email: string | null | undefined): boolean {
 }
 
 export function makeBrowserClient(ctx: APIContext): SupabaseClient {
-  // For SSR — reads anon JWT from cookie if present.
-  const headers = new Headers();
+  return createClient(
+    ctx.locals.runtime.env.SUPABASE_URL,
+    ctx.locals.runtime.env.SUPABASE_ANON_KEY,
+    {
+      auth: {
+        persistSession: false,
+        autoRefreshToken: false,
+        detectSessionInUrl: false,
+      },
+    },
+  );
+}
+
+export function makeAuthenticatedClient(ctx: APIContext): SupabaseClient {
+  // Build a supabase-js client pre-loaded with the user's access_token as the
+  // global Authorization header. RLS's auth.uid() resolves correctly server-side.
+  const accessToken = ctx.cookies.get('sb-access-token')?.value;
+  const headers: Record<string, string> = {};
+  if (accessToken) headers.Authorization = `Bearer ${accessToken}`;
   return createClient(
     ctx.locals.runtime.env.SUPABASE_URL,
     ctx.locals.runtime.env.SUPABASE_ANON_KEY,
@@ -24,26 +41,6 @@ export function makeBrowserClient(ctx: APIContext): SupabaseClient {
       global: { headers },
     },
   );
-}
-
-export function makeAuthenticatedClient(ctx: APIContext): SupabaseClient {
-  const accessToken = ctx.cookies.get('sb-access-token')?.value;
-  const refreshToken = ctx.cookies.get('sb-refresh-token')?.value;
-  const client = createClient(
-    ctx.locals.runtime.env.SUPABASE_URL,
-    ctx.locals.runtime.env.SUPABASE_ANON_KEY,
-    {
-      auth: {
-        persistSession: false,
-        autoRefreshToken: false,
-        detectSessionInUrl: false,
-      },
-    },
-  );
-  if (accessToken && refreshToken) {
-    client.auth.setSession({ access_token: accessToken, refresh_token: refreshToken });
-  }
-  return client;
 }
 
 export async function setSessionCookies(ctx: APIContext, session: { access_token: string; refresh_token: string }) {
@@ -60,9 +57,40 @@ export function clearSessionCookies(ctx: APIContext) {
   ctx.cookies.delete('sb-refresh-token', { path: '/' });
 }
 
+// Direct verification — fetches /auth/v1/user with the access token as Bearer.
+// Bypasses supabase-js session restore quirks in SSR.
 export async function getCurrentUser(ctx: APIContext): Promise<{ id: string; email: string } | null> {
-  const client = makeAuthenticatedClient(ctx);
-  const { data } = await client.auth.getUser();
-  if (!data.user) return null;
-  return { id: data.user.id, email: data.user.email ?? '' };
+  const accessToken = ctx.cookies.get('sb-access-token')?.value;
+  if (!accessToken) return null;
+
+  const supabaseUrl = ctx.locals.runtime.env.SUPABASE_URL;
+  const anonKey = ctx.locals.runtime.env.SUPABASE_ANON_KEY;
+  const resp = await fetch(`${supabaseUrl}/auth/v1/user`, {
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      apikey: anonKey,
+    },
+  });
+  if (!resp.ok) {
+    // token expired or invalid — clear cookies so /me doesn't bounce forever
+    clearSessionCookies(ctx);
+    return null;
+  }
+  const user = (await resp.json()) as { id: string; email?: string };
+  return { id: user.id, email: user.email ?? '' };
+}
+
+// Server-side query helper: postgrest GET with the user's access token.
+export async function authenticatedFetch(
+  ctx: APIContext,
+  path: string,
+  init: RequestInit = {},
+): Promise<Response> {
+  const accessToken = ctx.cookies.get('sb-access-token')?.value;
+  const supabaseUrl = ctx.locals.runtime.env.SUPABASE_URL;
+  const anonKey = ctx.locals.runtime.env.SUPABASE_ANON_KEY;
+  const headers = new Headers(init.headers || {});
+  headers.set('apikey', anonKey);
+  if (accessToken) headers.set('Authorization', `Bearer ${accessToken}`);
+  return fetch(`${supabaseUrl}${path}`, { ...init, headers });
 }
