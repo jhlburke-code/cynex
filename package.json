@@ -12,7 +12,8 @@
   "dependencies": {
     "@astrojs/cloudflare": "^11.0.0",
     "@supabase/supabase-js": "^2.45.0",
-    "astro": "^4.16.0"
+    "astro": "^4.16.0",
+    "pdf-lib": "^1.17.1"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.0.0",

@@ -61,15 +61,20 @@ function envelope(subject: string, bodyHtml: string): string {
 function renderTemplate(template: string, payload: Record<string, any>, profile: Profile, course: Course | null, baseUrl: string): { subject: string; html: string; text: string } {
   const name = escapeHtml(profile.full_name || 'there');
   if (template === 'completion' && course) {
-    const url = `${baseUrl}/me`;
+    const meUrl = `${baseUrl}/me`;
+    const certUrl = payload.cert_url || `${baseUrl}/me/certificates`;
     const subject = `You completed: ${course.title}`;
     const inner = `<div class="body">
       <h1>Nice one, ${name} — you completed <em>${escapeHtml(course.title)}</em>.</h1>
-      <p>Your completion row is recorded. ${payload.cert_url ? 'Your certificate PDF is ready below.' : "A certificate PDF will be available shortly (we're polishing that piece in Phase 5)."}</p>
-      <p><a class="btn" href="${url}">View My Learning</a></p>
+      <p>Your completion is recorded. ${payload.cert_url ? 'Your certificate PDF is ready below.' : 'Your certificate PDF is on its way — re-check this email in a minute or grab it from My Certificates.'}</p>
+      <p><a class="btn" href="${certUrl}">${payload.cert_url ? 'Download certificate' : 'View My Certificates'}</a></p>
+      <p><a class="btn" href="${meUrl}" style="background:#1B3A6B;">View My Learning</a></p>
       <p class="meta">Course: ${escapeHtml(course.title)} (${escapeHtml(course.slug)})</p>
     </div>`;
-    return { subject, html: envelope('Completion', inner), text: `Nice one, ${profile.full_name || 'there'} — you completed "${course.title}". View your learning: ${url}` };
+    const text = payload.cert_url
+      ? `Nice one, ${profile.full_name || 'there'} — you completed "${course.title}". Certificate: ${certUrl}. Course page: ${meUrl}`
+      : `Nice one, ${profile.full_name || 'there'} — you completed "${course.title}". View your learning: ${meUrl} (certificate available at ${certUrl})`;
+    return { subject, html: envelope('Completion', inner), text };
   }
   if (template === 'enrollment_welcome' && course) {
     const url = `${baseUrl}/learn/${course.slug}`;

@@ -1,0 +1,53 @@
+---
+import Layout from '../../layouts/Layout.astro';
+import { makeAuthenticatedClient, getCurrentUser } from '../../lib/supabase';
+
+const gate = await getCurrentUser(Astro);
+if (!gate) return Astro.redirect('/login?next=/me/certificates');
+
+const client = makeAuthenticatedClient(Astro);
+
+const { data: completions } = await client
+  .from('lms_completions')
+  .select('id, completed_at, certificate_url, lms_courses ( slug, title, content_type )')
+  .eq('user_id', gate.id)
+  .order('completed_at', { ascending: false });
+
+const fmt = (s: string) => new Date(s).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+---
+<Layout title="My certificates" description="Your completed Cynex courses, with downloadable certificates.">
+  <section class="container" style="max-width: 880px;">
+    <a href="/me" class="muted" style="font-size: 14px;">← My learning</a>
+    <h1 style="margin-top: 16px;">My certificates</h1>
+    <p class="muted">PDFs for every course you've completed. The download link is a signed URL — valid for 7 days, then refresh from this page.</p>
+
+    {(!completions || completions.length === 0) && (
+      <div class="card" style="margin-top: 24px;">
+        <h2 style="margin-top: 0; font-size: 18px;">No certificates yet</h2>
+        <p class="muted" style="margin: 8px 0 0;">Complete a course from <a href="/me">/me</a> to earn your first.</p>
+      </div>
+    )}
+
+    {completions && completions.length > 0 && (
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 24px;">
+        {completions.map((c: any) => (
+          <div class="card">
+            <span class={`tag tag-${c.lms_courses?.content_type ?? 'elearning'}`}>{c.lms_courses?.content_type ?? 'elearning'}</span>
+            <h2 style="margin-top: 12px; font-size: 18px;">{c.lms_courses?.title ?? 'Course'}</h2>
+            <p class="muted" style="font-size: 13px; margin: 4px 0 0;">
+              completed {fmt(c.completed_at)}
+            </p>
+            <p class="muted" style="font-size: 12px; margin: 0; font-family: ui-monospace, monospace;">
+              {c.id.slice(0, 8)}…
+            </p>
+            <div style="margin-top: 12px;">
+              <a href={`/api/certificates/${c.id}`} class="btn btn-primary" target="_blank" rel="noopener">
+                Download PDF
+              </a>
+            </div>
+          </div>
+        ))}
+      </div>
+    )}
+  </section>
+</Layout>
