@@ -223,8 +223,10 @@ export interface CertResult {
 }
 
 /**
- * Ensure a certificate exists and return its raw bytes. Fast path: download
- * the existing PDF from storage. Cold path: build, upload, and return bytes.
+ * Build the certificate PDF, overwrite the stored copy, and return the bytes.
+ * Always rebuilds — the previous "return cached PDF" path produced stale certs
+ * after profile.full_name was backfilled (e.g. user re-logging in via the new
+ * /login form). pdf-lib build is ~50ms, so freshness wins over the cache hit.
  * Throws on error.
  */
 export async function getOrCreateCertificateBytes(
@@ -243,13 +245,8 @@ export async function getOrCreateCertificateBytes(
 
 	const path = storagePath(completion.user_id, completion.id);
 
-	// Fast path: download existing
-	const existing = await downloadPdf(ctx, path);
-	if (existing) {
-		return { bytes: existing, slug: completion.courses.slug };
-	}
-
-	// Cold path: build + upload
+	// Always rebuild — the profile may have been updated since the last cert
+	// was generated (name backfill, user editing profile, etc.).
 	const pdf = await buildCertificatePdf({
 		userName: userProfile?.full_name ?? userProfile?.email ?? "Cynex Learner",
 		userEmail: userProfile?.email ?? "",
