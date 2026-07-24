@@ -18,6 +18,8 @@ const next = url.searchParams.get('next') ?? '/me';
   </section>
 
   <script is:inline define:vars={{ next }}>
+    const initialUrl = new URL(window.location.href);
+    const initialFullName = initialUrl.searchParams.get('full_name') || '';
     (async () => {
       const log = (m) => {
         const el = document.getElementById('cynex-callback-debug');
@@ -39,11 +41,12 @@ const next = url.searchParams.get('next') ?? '/me';
         const params = new URLSearchParams(window.location.hash.slice(1));
         const access_token = params.get('access_token') || '';
         const refresh_token = params.get('refresh_token') || '';
-        const code = new URL(window.location.href).searchParams.get('code') || '';
+        const code = initialUrl.searchParams.get('code') || '';
 
         log('3b. access_token=' + (access_token ? access_token.slice(0, 12) + '…' : '(empty)'));
         log('3c. refresh_token=' + (refresh_token ? refresh_token.slice(0, 12) + '…' : '(empty)'));
         log('3d. code=' + (code ? code.slice(0, 12) + '…' : '(empty)'));
+        log('3e. full_name=' + (initialFullName || '(empty)'));
 
         if (!access_token && !code) {
           log('4. FAIL: no tokens in URL');
@@ -55,7 +58,7 @@ const next = url.searchParams.get('next') ?? '/me';
         const r = await fetch('/api/login/finish', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ access_token, refresh_token, code, next }),
+          body: JSON.stringify({ access_token, refresh_token, code, next, full_name: initialFullName }),
         });
         const j = await r.json();
         log('6. finish status=' + r.status + ' body=' + JSON.stringify(j));

@@ -35,10 +35,15 @@ export const POST: APIRoute = async (ctx) => {
 
   const client = makeBrowserClient(ctx);
   const origin = requestOrigin(ctx);
+  // Pass the name through the magic-link URL so /api/login/finish can write it
+  // to lms_profiles — relying on options.data alone doesn't reliably update
+  // user_metadata for existing users, so we belt-and-suspender it.
+  const callbackParams = new URLSearchParams({ next });
+  callbackParams.set('full_name', fullName);
   const { error } = await client.auth.signInWithOtp({
     email,
     options: {
-      emailRedirectTo: `${origin}/api/login/callback?next=${encodeURIComponent(next)}`,
+      emailRedirectTo: `${origin}/api/login/callback?${callbackParams.toString()}`,
       data: { full_name: fullName },
     },
   });
