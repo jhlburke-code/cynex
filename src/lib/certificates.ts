@@ -58,6 +58,21 @@ export async function signedUrl(
 	return data.signedUrl;
 }
 
+/** Download a stored certificate as raw bytes. Returns null on miss/error. */
+export async function downloadPdf(
+	ctx: APIContext,
+	path: string,
+): Promise<Uint8Array | null> {
+	const admin = makeServiceRoleClient(ctx);
+	if (!admin) return null;
+	const { data, error } = await admin.storage
+		.from("lms-assets")
+		.download(path);
+	if (error || !data) return null;
+	const buf = await data.arrayBuffer();
+	return new Uint8Array(buf);
+}
+
 // ─── PDF builder ─────────────────────────────────────────────────────────
 
 interface CertInput {
@@ -205,6 +220,54 @@ export async function buildCertificatePdf(input: CertInput): Promise<Uint8Array>
 export interface CertResult {
 	path: string;
 	signedUrl: string;
+}
+
+/**
+ * Ensure a certificate exists and return its raw bytes. Fast path: download
+ * the existing PDF from storage. Cold path: build, upload, and return bytes.
+ * Throws on error.
+ */
+export async function getOrCreateCertificateBytes(
+	ctx: APIContext,
+	completion: {
+		id: string;
+		user_id: string;
+		courses: { title: string; slug: string } | null;
+		completed_at: string;
+	},
+	userProfile: { full_name: string | null; email: string | null } | null,
+): Promise<{ bytes: Uint8Array; slug: string }> {
+	if (!completion.courses) throw new Error("Course not joined on completion");
+	const admin = makeServiceRoleClient(ctx);
+	if (!admin) throw new Error("Service-role client not configured");
+
+	const path = storagePath(completion.user_id, completion.id);
+
+	// Fast path: download existing
+	const existing = await downloadPdf(ctx, path);
+	if (existing) {
+		return { bytes: existing, slug: completion.courses.slug };
+	}
+
+	// Cold path: build + upload
+	const pdf = await buildCertificatePdf({
+		userName: userProfile?.full_name ?? userProfile?.email ?? "Cynex Learner",
+		userEmail: userProfile?.email ?? "",
+		courseTitle: completion.courses.title,
+		courseSlug: completion.courses.slug,
+		completedAt: new Date(completion.completed_at),
+		completionId: completion.id,
+	});
+	const { error: upErr } = await uploadPdf(ctx, path, pdf);
+	if (upErr) throw new Error(`upload failed: ${upErr}`);
+
+	// Persist the storage path on the completion row
+	await admin
+		.from("lms_completions")
+		.update({ certificate_url: path })
+		.eq("id", completion.id);
+
+	return { bytes: pdf, slug: completion.courses.slug };
 }
 
 /**

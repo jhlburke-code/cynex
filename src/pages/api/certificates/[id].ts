@@ -1,11 +1,10 @@
-// /api/certificates/[id] — generate (if needed) and return a signed download URL
-// for a single completion. Admin-gated is not needed — the completion itself
-// has RLS so the learner can read it; we additionally verify the caller owns
-// the row before issuing a link.
+// /api/certificates/[id] — generate (if needed) and stream the PDF bytes for a
+// single completion. Auth-gated: only the owner (or an admin) can fetch the
+// cert. Always returns the PDF binary so there's no Accept-header ambiguity.
 
 import type { APIRoute } from "astro";
 import { getCurrentUser, makeServiceRoleClient } from "../../../lib/supabase";
-import { ensureCertificate, signedUrl } from "../../../lib/certificates";
+import { getOrCreateCertificateBytes } from "../../../lib/certificates";
 
 export const GET: APIRoute = async (ctx) => {
 	const user = await getCurrentUser(ctx);
@@ -29,7 +28,7 @@ export const GET: APIRoute = async (ctx) => {
 		});
 	}
 
-	// Fetch the completion with the owning user_id + course title
+	// Fetch the completion with the owning user_id + course title/slug
 	const { data: completion, error } = await admin
 		.from("lms_completions")
 		.select("id, user_id, completed_at, certificate_url, lms_courses ( title, slug )")
@@ -54,29 +53,7 @@ export const GET: APIRoute = async (ctx) => {
 		});
 	}
 
-	// Browser-friendly behaviour: redirect to the signed URL so the browser
-	// renders the PDF inline. Programmatic callers can pass Accept: application/json
-	// to get the JSON envelope instead.
-	const wantJson = ctx.request.headers.get("accept")?.includes("application/json");
-
-	const issueEnvelope = async (signedHref: string, path: string, cached: boolean) => {
-		if (wantJson) {
-			return new Response(JSON.stringify({ signedUrl: signedHref, path, cached }), {
-				headers: { "Content-Type": "application/json" },
-			});
-		}
-		return Response.redirect(signedHref, 302);
-	};
-
-	// Fast path: if the certificate is already in storage, just mint a fresh signed URL.
-	if (completion.certificate_url) {
-		const url = await signedUrl(ctx, completion.certificate_url as string);
-		if (url) {
-			return issueEnvelope(url, completion.certificate_url as string, true);
-		}
-	}
-
-	// Cold path: build + upload + return
+	// Profile for the recipient name on the PDF
 	const profile = await admin
 		.from("lms_profiles")
 		.select("email, full_name")
@@ -84,7 +61,7 @@ export const GET: APIRoute = async (ctx) => {
 		.maybeSingle();
 
 	try {
-		const r = await ensureCertificate(
+		const { bytes, slug } = await getOrCreateCertificateBytes(
 			ctx,
 			{
 				id: completion.id,
@@ -94,7 +71,21 @@ export const GET: APIRoute = async (ctx) => {
 			},
 			profile,
 		);
-		return issueEnvelope(r.signedUrl, r.path, false);
+
+		// Safe ASCII filename for the browser
+		const safeSlug = (slug || "certificate").replace(/[^a-z0-9-]/gi, "-");
+		const filename = `cynex-${safeSlug}.pdf`;
+
+		return new Response(bytes, {
+			headers: {
+				"Content-Type": "application/pdf",
+				"Content-Length": String(bytes.byteLength),
+				"Content-Disposition": `inline; filename="${filename}"`,
+				"Cache-Control": "private, no-store",
+				// Defense in depth — should already be a no-op for a same-origin fetch
+				"X-Content-Type-Options": "nosniff",
+			},
+		});
 	} catch (e) {
 		return new Response(JSON.stringify({ error: (e as Error).message }), {
 			status: 500, headers: { "Content-Type": "application/json" },
