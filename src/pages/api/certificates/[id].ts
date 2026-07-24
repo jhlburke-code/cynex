@@ -54,20 +54,29 @@ export const GET: APIRoute = async (ctx) => {
 		});
 	}
 
-	// Fast path: if the certificate is already in storage, just return a fresh signed URL.
+	// Browser-friendly behaviour: redirect to the signed URL so the browser
+	// renders the PDF inline. Programmatic callers can pass Accept: application/json
+	// to get the JSON envelope instead.
+	const wantJson = ctx.request.headers.get("accept")?.includes("application/json");
+
+	const issueEnvelope = async (signedHref: string, path: string, cached: boolean) => {
+		if (wantJson) {
+			return new Response(JSON.stringify({ signedUrl: signedHref, path, cached }), {
+				headers: { "Content-Type": "application/json" },
+			});
+		}
+		return Response.redirect(signedHref, 302);
+	};
+
+	// Fast path: if the certificate is already in storage, just mint a fresh signed URL.
 	if (completion.certificate_url) {
 		const url = await signedUrl(ctx, completion.certificate_url as string);
 		if (url) {
-			return new Response(JSON.stringify({
-				signedUrl: url,
-				path: completion.certificate_url,
-				cached: true,
-			}), { headers: { "Content-Type": "application/json" } });
+			return issueEnvelope(url, completion.certificate_url as string, true);
 		}
 	}
 
 	// Cold path: build + upload + return
-	const userRes = await admin.auth.admin.getUserById(completion.user_id);
 	const profile = await admin
 		.from("lms_profiles")
 		.select("email, full_name")
@@ -85,11 +94,7 @@ export const GET: APIRoute = async (ctx) => {
 			},
 			profile,
 		);
-		return new Response(JSON.stringify({
-			signedUrl: r.signedUrl,
-			path: r.path,
-			cached: false,
-		}), { headers: { "Content-Type": "application/json" } });
+		return issueEnvelope(r.signedUrl, r.path, false);
 	} catch (e) {
 		return new Response(JSON.stringify({ error: (e as Error).message }), {
 			status: 500, headers: { "Content-Type": "application/json" },
