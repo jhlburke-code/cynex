@@ -54,7 +54,9 @@ export const GET: APIRoute = async (ctx) => {
 	}
 
 	// Profile for the recipient name on the PDF
-	const profile = await admin
+	// (awaited — without await, `profile` is a Promise and the full_name
+	//  fallback in buildCertificatePdf falls through to "Cynex Learner")
+	const { data: profile } = await admin
 		.from("lms_profiles")
 		.select("email, full_name")
 		.eq("user_id", completion.user_id)
