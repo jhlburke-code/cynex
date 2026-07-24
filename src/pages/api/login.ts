@@ -1,5 +1,6 @@
 import type { APIRoute } from 'astro';
 import { makeBrowserClient } from '../../lib/supabase';
+import { normalizeName } from '../../lib/name';
 
 function requestOrigin(ctx: any): string {
   // Cloudflare Pages sits behind a reverse proxy; x-forwarded-proto + host are
@@ -12,10 +13,20 @@ function requestOrigin(ctx: any): string {
 export const POST: APIRoute = async (ctx) => {
   const form = await ctx.request.formData();
   const email = String(form.get('email') ?? '').trim().toLowerCase();
+  const fullNameRaw = String(form.get('full_name') ?? '');
   const next = String(form.get('next') ?? '/me');
 
   if (!email || !email.includes('@')) {
     return ctx.redirect('/login?error=invalid');
+  }
+
+  // Normalize name server-side: trim, collapse whitespace, capitalize tokens.
+  // The Supabase auth trigger reads raw_user_meta_data->>'full_name' on insert;
+  // returning users keep their stored name (trigger only sets full_name on first
+  // insert via the ON CONFLICT clause in 20260722180001_lms_profiles_email_sync).
+  const fullName = normalizeName(fullNameRaw);
+  if (!fullName) {
+    return ctx.redirect('/login?error=name_required');
   }
 
   if (!ctx.locals.runtime.env.SUPABASE_URL) {
@@ -28,6 +39,7 @@ export const POST: APIRoute = async (ctx) => {
     email,
     options: {
       emailRedirectTo: `${origin}/api/login/callback?next=${encodeURIComponent(next)}`,
+      data: { full_name: fullName },
     },
   });
 

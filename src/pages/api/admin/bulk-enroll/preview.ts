@@ -1,39 +1,98 @@
 import type { APIRoute } from 'astro';
 import { requireAdmin } from '../../../../lib/auth';
 import { makeAuthenticatedClient, makeServiceRoleClient } from '../../../../lib/supabase';
+import { normalizeName } from '../../../../lib/name';
 
-// Parse emails from CSV or pasted input. Returns { emails: string[], invalid: {line, value, reason}[] }.
-function parseEmails(text: string): { emails: string[]; invalids: { line: number; value: string; reason: string }[] } {
-  const out: string[] = [];
-  const invalids: { line: number; value: string; reason: string }[] = [];
-  const EMAIL_RE = /^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/;
-  const lines = text.split(/\r?\n/);
-  for (let i = 0; i < lines.length; i++) {
-    const raw = lines[i].trim();
-    if (!raw) continue;
-    // Skip CSV header if first non-empty line looks like "email"
-    if (i === 0 && /^e[\-_]?mail[\s,:]/i.test(raw)) continue;
+interface Entry {
+	email: string;
+	name: string | null;
+}
 
-    // Split by both comma and whitespace for pasted lists
-    const parts = raw.split(/[\s,;]+/).map(s => s.trim()).filter(Boolean);
-    for (const p of parts) {
-      const val = p.replace(/^["']|["']$/g, '').trim(); // strip quotes
-      if (!val) continue;
-      if (!EMAIL_RE.test(val)) {
-        invalids.push({ line: i + 1, value: val, reason: 'invalid format' });
-      } else {
-        out.push(val.toLowerCase());
-      }
-    }
-  }
-  return { emails: Array.from(new Set(out)).sort(), invalids };
+// Parse emails (and optional names) from CSV/pasted input. Returns
+// { entries: {email, name|null}[], invalids: {line, value, reason}[] }.
+// Supports three shapes:
+//   1. one column (back-compat): `email` per line, whitespace- or comma-separated
+//   2. CSV with header: first non-empty line contains a recognised column
+//      ("email" / "name" / "full_name"), then parse by columns
+//   3. quote-wrapped values are stripped
+function parseEntries(text: string): { entries: Entry[]; invalids: { line: number; value: string; reason: string }[] } {
+	const lines = text.split(/\r?\n/);
+	const out: Entry[] = [];
+	const invalids: { line: number; value: string; reason: string }[] = [];
+	const EMAIL_RE = /^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/;
+
+	// Detect a header row: first non-empty line that contains the literal
+	// token "email" (case-insensitive) followed by a delimiter and is itself
+	// not a valid email address.
+	let firstIdx = 0;
+	while (firstIdx < lines.length && !lines[firstIdx].trim()) firstIdx++;
+	const first = (lines[firstIdx] ?? '').trim();
+	const looksLikeHeader =
+		first.length > 0 &&
+		!EMAIL_RE.test(first.replace(/^["']|["']$/g, '')) &&
+		/^["']?\s*(email|e[\-_ ]?mail)\s*["']?[\s,;]/i.test(first);
+
+	if (!looksLikeHeader) {
+		// Back-compat: any-delimiter email list. Whitespace OR commas separate values.
+		for (let i = 0; i < lines.length; i++) {
+			const raw = lines[i].trim();
+			if (!raw) continue;
+			const parts = raw.split(/[\s,;]+/).map((s) => s.trim().replace(/^["']|["']$/g, '')).filter(Boolean);
+			for (const p of parts) {
+				const val = p.trim();
+				if (!val) continue;
+				if (!EMAIL_RE.test(val)) {
+					invalids.push({ line: i + 1, value: val, reason: 'invalid format' });
+				} else {
+					out.push({ email: val.toLowerCase(), name: null });
+				}
+			}
+		}
+	} else {
+		// CSV with header
+		const headerCols = first
+			.split(/[\s,;]+/)
+			.map((s) => s.trim().replace(/^["']|["']$/g, '').toLowerCase());
+		const emailIdx = headerCols.findIndex((c) => /^e[\-_ ]?mail$/i.test(c));
+		const nameIdx = headerCols.findIndex((c) => /^(name|full[\-_\s]?name)$/i.test(c));
+		if (emailIdx === -1) {
+			invalids.push({ line: firstIdx + 1, value: first, reason: 'header detected but no email column' });
+		} else {
+			for (let i = firstIdx + 1; i < lines.length; i++) {
+				const raw = lines[i].trim();
+				if (!raw) continue;
+				const cols = raw
+					.split(/[\s,;]+/)
+					.map((s) => s.trim().replace(/^["']|["']$/g, ''));
+				const email = cols[emailIdx]?.toLowerCase();
+				if (!email) {
+					invalids.push({ line: i + 1, value: raw, reason: 'missing email column' });
+					continue;
+				}
+				if (!EMAIL_RE.test(email)) {
+					invalids.push({ line: i + 1, value: email, reason: 'invalid email format' });
+					continue;
+				}
+				const rawName = nameIdx >= 0 ? cols[nameIdx] ?? null : null;
+				const name = rawName ? normalizeName(rawName) : null;
+				out.push({ email, name });
+			}
+		}
+	}
+
+	// Dedupe by email; keep the first non-null name encountered.
+	const seen = new Map<string, Entry>();
+	for (const e of out) {
+		const existing = seen.get(e.email);
+		if (!existing) seen.set(e.email, e);
+		else if (!existing.name && e.name) seen.set(e.email, e);
+	}
+	return { entries: Array.from(seen.values()).sort((a, b) => a.email.localeCompare(b.email)), invalids };
 }
 
 // Renders the HTML preview page (re-uses AdminLayout visual style).
 async function renderPreview(ctx: any, body: string, status = 200): Promise<Response> {
-  // We re-serve the same /admin/bulk-enroll page shape, but with the diff HTML injected.
-  // Simpler: compose a tiny inline HTML response with shared look-and-feel.
-  const html = `<!doctype html>
+	const html = `<!doctype html>
 <html lang="en"><head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -69,127 +128,133 @@ async function renderPreview(ctx: any, body: string, status = 200): Promise<Resp
     ${body}
   </main>
 </body></html>`;
-  return new Response(html, { status, headers: { 'Content-Type': 'text/html; charset=utf-8' } });
+	return new Response(html, { status, headers: { 'Content-Type': 'text/html; charset=utf-8' } });
 }
 
 export const POST: APIRoute = async (ctx) => {
-  const gate = await requireAdmin(ctx);
-  if (gate instanceof Response) return gate;
+	const gate = await requireAdmin(ctx);
+	if (gate instanceof Response) return gate;
 
-  const form = await ctx.request.formData();
-  const courseId = String(form.get('course_id') ?? '');
-  if (!courseId) {
-    return ctx.redirect('/admin/bulk-enroll?error=' + encodeURIComponent('Pick a course first.'));
-  }
+	const form = await ctx.request.formData();
+	const courseId = String(form.get('course_id') ?? '');
+	if (!courseId) {
+		return ctx.redirect('/admin/bulk-enroll?error=' + encodeURIComponent('Pick a course first.'));
+	}
 
-  // Parse from file or paste
-  let rawText = '';
-  const file = form.get('csv');
-  if (file && typeof file !== 'string') {
-    const f = file as File;
-    rawText = await f.text();
-  }
-  const paste = String(form.get('emails_paste') ?? '').trim();
-  if (paste) rawText = rawText ? rawText + '\n' + paste : paste;
+	let rawText = '';
+	const file = form.get('csv');
+	if (file && typeof file !== 'string') {
+		const f = file as File;
+		rawText = await f.text();
+	}
+	const paste = String(form.get('emails_paste') ?? '').trim();
+	if (paste) rawText = rawText ? rawText + '\n' + paste : paste;
 
-  if (!rawText.trim()) {
-    return ctx.redirect('/admin/bulk-enroll?error=' + encodeURIComponent('No emails found in file or paste.'));
-  }
+	if (!rawText.trim()) {
+		return ctx.redirect('/admin/bulk-enroll?error=' + encodeURIComponent('No emails found in file or paste.'));
+	}
 
-  const { emails, invalids } = parseEmails(rawText);
-  if (emails.length === 0) {
-    return ctx.redirect('/admin/bulk-enroll?error=' + encodeURIComponent('No valid emails parsed.'));
-  }
+	const { entries, invalids } = parseEntries(rawText);
+	if (entries.length === 0) {
+		return ctx.redirect('/admin/bulk-enroll?error=' + encodeURIComponent('No valid emails parsed.'));
+	}
 
-  // Look up course
-  const client = makeAuthenticatedClient(ctx);
-  const { data: course } = await client
-    .from('lms_courses')
-    .select('id, slug, title')
-    .eq('id', courseId)
-    .maybeSingle();
-  if (!course) {
-    return ctx.redirect('/admin/bulk-enroll?error=' + encodeURIComponent('Course not found.'));
-  }
+	const emails = entries.map((e) => e.email);
 
-  // Diff: which emails are existing users
-  const admin = makeServiceRoleClient(ctx);
-  let existing: { id: string; email: string }[] = [];
-  if (admin) {
-    const { data } = await admin
-      .from('lms_profiles')
-      .select('user_id, email')
-      .in('email', emails);  // emails lowercased
-    const usersByEmail = new Map<string, { id: string }>();
-    // We need to also look up auth.users by email to map email -> user_id when profiles missing
-    // For new users, profile row gets created on first signup; for bulk-enroll we trust the email.
-    if (data) {
-      // We need user_id, not in profiles. Use admin auth admin listUsers.
-      const { data: authList } = await admin.auth.admin.listUsers({ perPage: 1000 });
-      const usersByIdEmail = new Map<string, string>();
-      for (const u of authList?.users || []) {
-        if (u.email) usersByIdEmail.set(u.id, u.email.toLowerCase());
-      }
-      const emailToUid = new Map<string, string>();
-      for (const [uid, e] of usersByIdEmail) emailToUid.set(e, uid);
-      existing = (data || []).map(p => ({ id: p.user_id, email: emailToUid.get(p.email?.toLowerCase() ?? '') || p.user_id }))
-        .filter((p: any) => emailToUid.has(p.email?.toLowerCase() ?? ''));
-      // Collect all auth.users emails for the diff
-      const allEmails = new Set((authList?.users || []).map(u => u.email?.toLowerCase()).filter(Boolean) as string[]);
-      // Output:
-      const existingEmails = new Set(existing.map(e => e.email));
-      const newEmails = emails.filter(e => !existingEmails.has(e) && !allEmails.has(e));
-      const knownEmails = emails.filter(e => allEmails.has(e));
-      return renderPreview(ctx, `
-        <h1>Bulk-enroll preview: <em>${escapeHtml(course.title)}</em></h1>
-        <p class="muted">Course: <code>${escapeHtml(course.slug)}</code> · Emails parsed: <strong>${emails.length}</strong></p>
+	// Look up course
+	const client = makeAuthenticatedClient(ctx);
+	const { data: course } = await client
+		.from('lms_courses')
+		.select('id, slug, title')
+		.eq('id', courseId)
+		.maybeSingle();
+	if (!course) {
+		return ctx.redirect('/admin/bulk-enroll?error=' + encodeURIComponent('Course not found.'));
+	}
 
-        <div class="card">
-          <p style="margin:0 0 8px;"><strong>${existingEmails.size}</strong> existing users with profiles (will re-enroll, no-op)</p>
-          <p style="margin:0 0 8px;"><strong>${knownEmails.length - existingEmails.size}</strong> existing users without profiles (will create profile then enroll)</p>
-          <p style="margin:0 0 8px;"><strong>${newEmails.length}</strong> new emails — will send an invite email + auto-enroll</p>
-          <p style="margin:0;"><strong>${invalids.length}</strong> invalid rows (skipped)</p>
-        </div>
+	const admin = makeServiceRoleClient(ctx);
+	if (!admin) {
+		return ctx.redirect('/admin/bulk-enroll?error=' + encodeURIComponent('Service-role client not configured.'));
+	}
 
-        <form method="POST" action="/api/admin/bulk-enroll/commit" style="margin-top: 16px;">
-          <input type="hidden" name="course_id" value="${escapeHtml(courseId)}" />
-          <input type="hidden" name="emails" value="${escapeHtml(emails.join(','))}" />
-          <button type="submit" class="btn btn-primary">Enroll ${emails.length} users</button>
-          <a href="/admin/bulk-enroll" class="btn btn-secondary">Cancel</a>
-        </form>
+	// Look up auth users + profiles
+	const { data: authList } = await admin.auth.admin.listUsers({ perPage: 1000 });
+	const knownEmails = new Set<string>();
+	const emailToUid = new Map<string, string>();
+	for (const u of authList?.users || []) {
+		if (u.email) {
+			const lo = u.email.toLowerCase();
+			knownEmails.add(lo);
+			emailToUid.set(lo, u.id);
+		}
+	}
 
-        ${invalids.length > 0 ? `
-          <h2 style="margin-top:32px;">Invalid rows (${invalids.length})</h2>
-          <table>
-            <thead><tr><th>Line</th><th>Value</th><th>Reason</th></tr></thead>
-            <tbody>${invalids.slice(0, 50).map(i => `<tr><td>${i.line}</td><td>${escapeHtml(i.value)}</td><td>${i.reason}</td></tr>`).join('')}</tbody>
-          </table>
-          ${invalids.length > 50 ? `<p class="muted">… and ${invalids.length - 50} more</p>` : ''}
-        ` : ''}
+	const { data: profiles } = await admin
+		.from('lms_profiles')
+		.select('user_id, email')
+		.in('email', emails);
+	const profileByEmail = new Map<string, string>();
+	for (const p of profiles || []) {
+		if (p.email) profileByEmail.set(p.email.toLowerCase(), p.user_id);
+	}
 
-        <h2 style="margin-top: 32px;">All emails to enroll (${emails.length})</h2>
-        <details><summary>Show list</summary>
-          <table style="margin-top: 8px;">
-            <thead><tr><th>Email</th><th>Status</th></tr></thead>
-            <tbody>
-              ${emails.map(e => `<tr><td>${escapeHtml(e)}</td><td>${existingEmails.has(e) ? 'existing profile' : (allEmails.has(e) ? 'known user, no profile' : 'new (will invite)')}</td></tr>`).join('')}
-            </tbody>
-          </table>
-        </details>
-      `);
-    }
-  }
+	let withProfile = 0;
+	let withoutProfile = 0;
+	let newUsers = 0;
+	for (const e of emails) {
+		if (profileByEmail.has(e)) withProfile += 1;
+		else if (knownEmails.has(e)) withoutProfile += 1;
+		else newUsers += 1;
+	}
+	const namesProvided = entries.filter((e) => e.name).length;
 
-  // Fallback: no admin client — render minimal preview
-  return renderPreview(ctx, `
-    <h1>Bulk-enroll preview</h1>
+	const entriesJson = JSON.stringify(entries);
+
+	return renderPreview(ctx, `
+    <h1>Bulk-enroll preview: <em>${escapeHtml(course.title)}</em></h1>
+    <p class="muted">Course: <code>${escapeHtml(course.slug)}</code> · Emails parsed: <strong>${emails.length}</strong>${namesProvided > 0 ? ` · Names: <strong>${namesProvided}</strong>` : ''}</p>
+
     <div class="card">
-      <p>${emails.length} emails parsed · ${invalids.length} invalid</p>
-      <p class="muted">Service-role client not configured. Set SUPABASE_SERVICE_ROLE_KEY in CF Pages env vars, then retry.</p>
+      <p style="margin:0 0 8px;"><strong>${withProfile}</strong> existing users with profiles (will re-enroll, no-op)</p>
+      <p style="margin:0 0 8px;"><strong>${withoutProfile}</strong> existing users without profiles (will create profile then enroll)</p>
+      <p style="margin:0 0 8px;"><strong>${newUsers}</strong> new emails — will send an invite email + auto-enroll</p>
+      <p style="margin:0;"><strong>${invalids.length}</strong> invalid rows (skipped)</p>
     </div>
-  `, 500);
+
+    ${namesProvided > 0 ? `
+      <div class="card" style="background: #FFFBEB; border-color: #B88A3A;">
+        <p style="margin:0;"><strong>Note:</strong> Names from the CSV apply to <strong>newly-invited</strong> users only (via Supabase user_metadata on invite). Existing users keep their stored name; update later via <code>/admin/users</code> or direct DB edit.</p>
+      </div>
+    ` : ''}
+
+    <form method="POST" action="/api/admin/bulk-enroll/commit" style="margin-top: 16px;">
+      <input type="hidden" name="course_id" value="${escapeHtml(courseId)}" />
+      <input type="hidden" name="entries" value="${escapeHtml(entriesJson)}" />
+      <button type="submit" class="btn btn-primary">Enroll ${emails.length} users</button>
+      <a href="/admin/bulk-enroll" class="btn btn-secondary">Cancel</a>
+    </form>
+
+    ${invalids.length > 0 ? `
+      <h2 style="margin-top:32px;">Invalid rows (${invalids.length})</h2>
+      <table>
+        <thead><tr><th>Line</th><th>Value</th><th>Reason</th></tr></thead>
+        <tbody>${invalids.slice(0, 50).map((i) => `<tr><td>${i.line}</td><td>${escapeHtml(i.value)}</td><td>${i.reason}</td></tr>`).join('')}</tbody>
+      </table>
+      ${invalids.length > 50 ? `<p class="muted">… and ${invalids.length - 50} more</p>` : ''}
+    ` : ''}
+
+    <h2 style="margin-top: 32px;">All emails to enroll (${emails.length})</h2>
+    <details><summary>Show list</summary>
+      <table style="margin-top: 8px;">
+        <thead><tr><th>Email</th><th>Name</th><th>Status</th></tr></thead>
+        <tbody>
+          ${entries.map((e) => `<tr><td>${escapeHtml(e.email)}</td><td>${escapeHtml(e.name ?? '—')}</td><td>${profileByEmail.has(e.email) ? 'existing profile' : (knownEmails.has(e.email) ? 'known user, no profile' : 'new (will invite)')}</td></tr>`).join('')}
+        </tbody>
+      </table>
+    </details>
+  `);
 };
 
 function escapeHtml(s: string): string {
-  return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+	return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }

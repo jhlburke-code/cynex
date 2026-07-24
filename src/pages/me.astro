@@ -8,6 +8,11 @@ if (!user) {
 }
 
 const client = makeAuthenticatedClient(Astro);
+const { data: profile } = await client
+  .from('lms_profiles')
+  .select('full_name')
+  .eq('user_id', user.id)
+  .maybeSingle();
 const { data: enrollments } = await client
   .from('lms_enrollments')
   .select(`
@@ -18,6 +23,9 @@ const { data: enrollments } = await client
   `)
   .eq('user_id', user.id)
   .order('enrolled_at', { ascending: false });
+
+const displayName = profile?.full_name?.trim() || user.email;
+const showEmail = !!profile?.full_name?.trim();
 ---
 <Layout title="My learning">
   <section class="container">
@@ -25,7 +33,7 @@ const { data: enrollments } = await client
       <h1>My learning</h1>
       <a href="/me/certificates" class="btn btn-secondary" style="font-size: 13px;">My certificates →</a>
     </div>
-    <p class="muted">Signed in as {user.email}</p>
+    <p class="muted">Signed in as <strong style="color: var(--text);">{displayName}</strong>{showEmail && <> · {user.email}</>}</p>
 
     {(!enrollments || enrollments.length === 0) && (
       <div class="card" style="margin-top: 24px;">

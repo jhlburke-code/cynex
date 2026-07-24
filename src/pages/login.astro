@@ -10,13 +10,14 @@ const sent = url.searchParams.get('sent');
   <section class="container" style="max-width: 480px;">
     <a href="/" class="muted" style="font-size: 14px;">← Home</a>
     <h1 style="margin-top: 16px;">Sign in</h1>
-    <p class="muted">Enter your work email — we'll send you a magic link.</p>
+    <p class="muted">Enter your full name and work email — we'll send you a magic link.</p>
 
     {error && (
       <div class="card" style="background: var(--red-soft); border-color: var(--red); margin-top: 16px;">
         {error === 'invalid' && <p>We couldn't find that link. Try requesting a fresh one below.</p>}
+        {error === 'name_required' && <p>Please enter your full name (at least 2 characters).</p>}
         {error === 'config' && <p>Auth isn't configured yet. Operator: set Supabase env vars on the deployment.</p>}
-        {error !== 'invalid' && error !== 'config' && <p>Something went wrong ({error}). Try again.</p>}
+        {error !== 'invalid' && error !== 'config' && error !== 'name_required' && <p>Something went wrong ({error}). Try again.</p>}
       </div>
     )}
 
@@ -29,18 +30,32 @@ const sent = url.searchParams.get('sent');
 
     <form method="POST" action="/api/login" class="card" style="margin-top: 24px;">
       <label style="display: block; margin-bottom: 12px;">
-        <div style="font-weight: 600; margin-bottom: 6px;">Email</div>
+        <div style="font-weight: 600; margin-bottom: 6px;">Full name</div>
+        <input
+          type="text"
+          name="full_name"
+          required
+          minlength="2"
+          maxlength="80"
+          autocomplete="name"
+          autofocus
+          style="width: 100%; padding: 12px; border: 1px solid #D0D5DD; border-radius: 6px; font-size: 15px; font-family: inherit;"
+          placeholder="John Burke"
+        />
+      </label>
+      <label style="display: block; margin-bottom: 12px;">
+        <div style="font-weight: 600; margin-bottom: 6px;">Work email</div>
         <input
           type="email"
           name="email"
           required
-          autofocus
           style="width: 100%; padding: 12px; border: 1px solid #D0D5DD; border-radius: 6px; font-size: 15px; font-family: inherit;"
           placeholder="you@ionos.com"
         />
       </label>
       <input type="hidden" name="next" value={next} />
       <button type="submit" class="btn btn-primary" style="width: 100%;">Send magic link</button>
+      <p class="muted" style="margin: 12px 0 0; font-size: 12px;">Your name appears on completion certificates and in the admin user list.</p>
     </form>
   </section>
 </Layout>
