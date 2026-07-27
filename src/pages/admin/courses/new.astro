@@ -1,9 +1,18 @@
 ---
 import AdminLayout from '../../../layouts/AdminLayout.astro';
 import { requireAdmin } from '../../../lib/auth';
+import { makeAuthenticatedClient } from '../../../lib/supabase';
 
 const gate = await requireAdmin(Astro);
 if (gate instanceof Response) return gate;
+
+const client = makeAuthenticatedClient(Astro);
+
+const { data: categories } = await client
+  .from('lms_categories')
+  .select('id, slug, title, parent_id, lms_categories!parent_id ( title )')
+  .order('display_order')
+  .order('title');
 
 const url = Astro.url;
 const error = url.searchParams.get('error');
@@ -45,6 +54,20 @@ const error = url.searchParams.get('error');
         <option value="youtube">YouTube embed</option>
         <option value="workshop">Workshop</option>
       </select>
+    </label>
+
+    <label style="display: block; margin-bottom: 16px;">
+      <div style="font-weight: 600; margin-bottom: 6px;">Category</div>
+      <select name="category_id" style="width: 100%; padding: 10px; border: 1px solid #D0D5DD; border-radius: 6px; font-size: 15px;">
+        <option value="">— Uncategorized</option>
+        {(categories ?? []).map((c: any) => (
+          <option value={c.id}>
+            {c.parent_id ? `↳ ${c.title}` : c.title}
+            {!c.parent_id && ` (root)`}
+          </option>
+        ))}
+      </select>
+      <div class="muted" style="font-size: 12px; margin-top: 4px;">Manage categories in <a href="/admin/categories">Categories</a>. ↳ = sub-category.</div>
     </label>
 
     <label style="display: block; margin-bottom: 16px;">

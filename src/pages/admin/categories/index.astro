@@ -1,0 +1,98 @@
+---
+import AdminLayout from '../../../layouts/AdminLayout.astro';
+import { requireAdmin } from '../../../lib/auth';
+import { makeAuthenticatedClient } from '../../../lib/supabase';
+
+const gate = await requireAdmin(Astro);
+if (gate instanceof Response) return gate;
+
+const client = makeAuthenticatedClient(Astro);
+
+// Fetch all categories. Tree shape reconstructed client-side.
+const { data: categories, error } = await client
+  .from('lms_categories')
+  .select('id, slug, title, description, parent_id, display_order, created_at')
+  .order('display_order')
+  .order('created_at');
+
+// Count courses per category.
+const { data: courseCounts } = await client
+  .from('lms_courses')
+  .select('category_id')
+  .not('category_id', 'is', null);
+const countMap: Record<string, number> = {};
+for (const row of courseCounts ?? []) {
+  if (row.category_id) countMap[row.category_id] = (countMap[row.category_id] ?? 0) + 1;
+}
+
+// Build tree: roots first, then their children inline.
+const roots = (categories ?? []).filter((c: any) => !c.parent_id);
+const childrenOf: Record<string, any[]> = {};
+for (const c of categories ?? []) {
+  if (c.parent_id) {
+    (childrenOf[c.parent_id] ??= []).push(c);
+  }
+}
+---
+<AdminLayout title="Categories" active="categories">
+  <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px;">
+    <p class="muted" style="margin: 0;">Group courses into a 2-level taxonomy. Roots can have one level of children.</p>
+    <a href="/admin/categories/new" class="btn btn-primary">+ New category</a>
+  </div>
+
+  {error && (
+    <div class="card" style="background: #FEE; border-color: #B71C1C;">
+      <strong>Failed to load categories</strong>
+      <p class="muted" style="margin: 8px 0 0;">{error.message}</p>
+    </div>
+  )}
+
+  {!error && roots.length === 0 && (
+    <div class="card">
+      <p class="muted" style="margin: 0;">No categories yet. <a href="/admin/categories/new">Create one.</a></p>
+    </div>
+  )}
+
+  {!error && roots.length > 0 && (
+    <div style="display: flex; flex-direction: column; gap: 16px;">
+      {roots.map((root: any) => (
+        <div class="card">
+          <div style="display: flex; justify-content: space-between; align-items: start; gap: 16px;">
+            <div style="flex: 1;">
+              <h2 style="margin: 0; font-size: 18px;">
+                {root.title}
+                <span class="muted" style="font-weight: 400; font-size: 13px; margin-left: 8px;">/{root.slug}</span>
+              </h2>
+              {root.description && <p class="muted" style="margin: 6px 0 0; font-size: 14px;">{root.description}</p>}
+              <p class="muted" style="margin: 8px 0 0; font-size: 13px;">
+                {countMap[root.id] ?? 0} courses directly
+                {(childrenOf[root.id] ?? []).length > 0 && (
+                  <> · {(childrenOf[root.id] ?? []).length} sub-categories</>
+                )}
+              </p>
+            </div>
+            <div style="display: flex; gap: 8px;">
+              <a href={`/admin/categories/new?parent=${root.id}`} class="btn btn-secondary" style="font-size: 13px;">+ Sub-category</a>
+              <a href={`/admin/categories/${root.id}`} class="btn btn-secondary" style="font-size: 13px;">Edit</a>
+            </div>
+          </div>
+
+          {(childrenOf[root.id] ?? []).length > 0 && (
+            <div style="margin-top: 16px; padding-top: 16px; border-top: 1px solid #E5E9F0;">
+              {(childrenOf[root.id] ?? []).map((child: any) => (
+                <div style="display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 1px solid #F0F2F5;">
+                  <div>
+                    <strong style="font-size: 14px;">{child.title}</strong>
+                    <span class="muted" style="font-size: 13px; margin-left: 8px;">/{child.slug}</span>
+                    <span class="muted" style="font-size: 13px; margin-left: 12px;">{countMap[child.id] ?? 0} courses</span>
+                  </div>
+                  <a href={`/admin/categories/${child.id}`} class="muted" style="font-size: 13px;">Edit</a>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      ))}
+    </div>
+  )}
+</AdminLayout>

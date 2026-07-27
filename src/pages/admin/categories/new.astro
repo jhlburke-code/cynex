@@ -1,0 +1,74 @@
+---
+import AdminLayout from '../../../layouts/AdminLayout.astro';
+import { requireAdmin } from '../../../lib/auth';
+import { makeAuthenticatedClient } from '../../../lib/supabase';
+
+const gate = await requireAdmin(Astro);
+if (gate instanceof Response) return gate;
+
+const client = makeAuthenticatedClient(Astro);
+const url = Astro.url;
+const error = url.searchParams.get('error');
+const preselectedParent = url.searchParams.get('parent');
+
+// Fetch root categories only (children can't be parents — depth cap is 2).
+const { data: roots } = await client
+  .from('lms_categories')
+  .select('id, slug, title')
+  .is('parent_id', null)
+  .order('display_order')
+  .order('title');
+---
+<AdminLayout title="New category" active="categories">
+  <a href="/admin/categories" class="muted" style="font-size: 14px;">← Categories</a>
+
+  {error && (
+    <div class="card" style="background: #FEE; border-color: #B71C1C; margin: 16px 0;">
+      <strong>Failed to create category:</strong> {error}
+    </div>
+  )}
+
+  <form method="POST" action="/api/admin/categories" class="card" style="max-width: 720px; margin-top: 16px;">
+    <label style="display: block; margin-bottom: 16px;">
+      <div style="font-weight: 600; margin-bottom: 6px;">Slug <span style="color: var(--red);">*</span></div>
+      <input type="text" name="slug" required pattern="[a-z0-9][a-z0-9/_-]{2,80}" placeholder="ai-skills"
+        style="width: 100%; padding: 10px; border: 1px solid #D0D5DD; border-radius: 6px; font-family: ui-monospace, monospace; font-size: 14px;" />
+      <div class="muted" style="font-size: 12px; margin-top: 4px;">Lowercase, hyphens, URL-safe. Used in <code>/catalog/categories/&lt;slug&gt;</code>.</div>
+    </label>
+
+    <label style="display: block; margin-bottom: 16px;">
+      <div style="font-weight: 600; margin-bottom: 6px;">Title <span style="color: var(--red);">*</span></div>
+      <input type="text" name="title" required placeholder="AI Skills"
+        style="width: 100%; padding: 10px; border: 1px solid #D0D5DD; border-radius: 6px; font-size: 15px;" />
+    </label>
+
+    <label style="display: block; margin-bottom: 16px;">
+      <div style="font-weight: 600; margin-bottom: 6px;">Description</div>
+      <textarea name="description" rows="2" placeholder="Short note shown on the category page."
+        style="width: 100%; padding: 10px; border: 1px solid #D0D5DD; border-radius: 6px; font-family: inherit; font-size: 14px;"></textarea>
+    </label>
+
+    <label style="display: block; margin-bottom: 16px;">
+      <div style="font-weight: 600; margin-bottom: 6px;">Parent category <span class="muted" style="font-weight: 400; font-size: 13px;">(leave empty for a root)</span></div>
+      <select name="parent_id" style="width: 100%; padding: 10px; border: 1px solid #D0D5DD; border-radius: 6px; font-size: 15px;">
+        <option value="">— Root (no parent)</option>
+        {(roots ?? []).map((r: any) => (
+          <option value={r.id} selected={preselectedParent === r.id}>{r.title} (/{r.slug})</option>
+        ))}
+      </select>
+      <div class="muted" style="font-size: 12px; margin-top: 4px;">Only root categories can be parents. Maximum depth is 2.</div>
+    </label>
+
+    <label style="display: block; margin-bottom: 24px;">
+      <div style="font-weight: 600; margin-bottom: 6px;">Display order</div>
+      <input type="number" name="display_order" value="0" min="0" max="999"
+        style="width: 120px; padding: 10px; border: 1px solid #D0D5DD; border-radius: 6px; font-size: 15px;" />
+      <div class="muted" style="font-size: 12px; margin-top: 4px;">Lower numbers appear first. Siblings sorted by this, then by created date.</div>
+    </label>
+
+    <div style="display: flex; gap: 12px;">
+      <button type="submit" class="btn btn-primary">Create</button>
+      <a href="/admin/categories" class="btn btn-secondary">Cancel</a>
+    </div>
+  </form>
+</AdminLayout>

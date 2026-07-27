@@ -1,7 +1,7 @@
 ---
 interface Props {
   title: string;
-  active: 'dashboard' | 'courses' | 'users' | 'bulk-enroll' | 'workshops' | 'notifications';
+  active: 'dashboard' | 'courses' | 'categories' | 'users' | 'bulk-enroll' | 'workshops' | 'notifications';
 }
 const { title, active } = Astro.props as any;
 import '../styles/global.css';
@@ -9,6 +9,7 @@ import '../styles/global.css';
 const nav: { href: string; label: string; key: string }[] = [
   { href: '/admin', label: 'Dashboard', key: 'dashboard' },
   { href: '/admin/courses', label: 'Courses', key: 'courses' },
+  { href: '/admin/categories', label: 'Categories', key: 'categories' },
   { href: '/admin/bulk-enroll', label: 'Bulk enroll', key: 'bulk-enroll' },
   { href: '/admin/workshops', label: 'Workshops', key: 'workshops' },
   { href: '/admin/users', label: 'Users', key: 'users' },

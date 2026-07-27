@@ -77,6 +77,19 @@ const savedFlag = url.searchParams.get('saved') === '1';
           style="width: 120px; padding: 10px; border: 1px solid #D0D5DD; border-radius: 6px; font-size: 15px;" />
       </label>
 
+      <label style="display: block; margin-bottom: 16px;">
+        <div style="font-weight: 600; margin-bottom: 6px;">Category</div>
+        <select name="category_id" style="width: 100%; padding: 10px; border: 1px solid #D0D5DD; border-radius: 6px; font-size: 15px;">
+          <option value="" selected={course.category_id === null}>— Uncategorized</option>
+          {(categories ?? []).map((c: any) => (
+            <option value={c.id} selected={course.category_id === c.id}>
+              {c.parent_id ? `↳ ${c.title}` : c.title}
+              {!c.parent_id && ` (root)`}
+            </option>
+          ))}
+        </select>
+      </label>
+
       <label style="display: flex; gap: 8px; align-items: center; margin-bottom: 24px;">
         <input type="checkbox" name="is_published" value="1" checked={course.is_published} />
         <span>Published</span>

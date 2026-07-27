@@ -3,11 +3,48 @@ import Layout from '../layouts/Layout.astro';
 import { makeBrowserClient } from '../lib/supabase';
 
 const client = makeBrowserClient(Astro);
-const { data: courses, error } = await client
+
+// Roots (categories with no parent), sorted by display_order.
+const { data: roots, error: rootsErr } = await client
+  .from('lms_categories')
+  .select('id, slug, title, description, display_order')
+  .is('parent_id', null)
+  .order('display_order')
+  .order('title');
+
+// Children of each root (max 1 level down per the 2-level cap).
+const { data: children } = await client
+  .from('lms_categories')
+  .select('id, slug, title, description, parent_id, display_order')
+  .not('parent_id', 'is', null)
+  .order('display_order')
+  .order('title');
+
+// All published courses. Filter by category_id client-side.
+const { data: courses, error: coursesErr } = await client
   .from('lms_courses')
-  .select('id, slug, title, description, content_type, duration_minutes')
+  .select('id, slug, title, description, content_type, duration_minutes, category_id')
   .eq('is_published', true)
   .order('created_at', { ascending: false });
+
+const error = rootsErr || coursesErr;
+
+// Group children by parent.
+const childrenByParent: Record<string, any[]> = {};
+for (const c of children ?? []) {
+  (childrenByParent[c.parent_id] ??= []).push(c);
+}
+
+// Group courses by category_id.
+const coursesByCategory: Record<string, any[]> = {};
+let uncategorized: any[] = [];
+for (const c of courses ?? []) {
+  if (c.category_id) {
+    (coursesByCategory[c.category_id] ??= []).push(c);
+  } else {
+    uncategorized.push(c);
+  }
+}
 ---
 <Layout title="Course catalog">
   <section class="container">
@@ -16,32 +53,91 @@ const { data: courses, error } = await client
 
     {error && (
       <div class="card" style="background: var(--red-soft); border-color: var(--red); margin: 24px 0;">
-        <strong>Couldn't load courses.</strong>
+        <strong>Couldn't load catalog.</strong>
         <p class="muted" style="margin: 8px 0 0;">{error.message}</p>
-        <p class="muted" style="margin-top: 8px; font-size: 13px;">
-          This usually means the Supabase tables aren't created yet — see <code>supabase/migrations/</code>.
-        </p>
       </div>
     )}
 
-    {!error && (!courses || courses.length === 0) && (
+    {!error && (!roots || roots.length === 0) && (
       <div class="card" style="margin-top: 24px;">
-        <h2>No courses yet</h2>
-        <p class="muted">The operator hasn't published any courses. Check back soon.</p>
+        <h2>No categories yet</h2>
+        <p class="muted">The operator hasn't created any categories. Check back soon.</p>
       </div>
     )}
 
-    <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 16px; margin-top: 24px;">
-      {courses?.map((c: any) => (
-        <a href={`/c/${c.slug}`} class="card" style="display: block; color: inherit;">
-          <span class={`tag tag-${c.content_type}`}>{c.content_type}</span>
-          <h2 style="margin-top: 12px;">{c.title}</h2>
-          <p class="muted">{c.description}</p>
-          {c.duration_minutes && (
-            <p class="muted" style="font-size: 13px; margin: 0;">~{c.duration_minutes} min</p>
-          )}
-        </a>
-      ))}
-    </div>
+    {!error && roots && roots.length > 0 && (
+      <div style="display: flex; flex-direction: column; gap: 24px; margin-top: 24px;">
+        {roots.map((root: any) => {
+          const kids = childrenByParent[root.id] ?? [];
+          const directCourses = coursesByCategory[root.id] ?? [];
+          return (
+            <div class="card">
+              <div style="display: flex; justify-content: space-between; align-items: start; gap: 16px;">
+                <div style="flex: 1;">
+                  <h2 style="margin: 0;">{root.title}</h2>
+                  {root.description && <p class="muted" style="margin: 6px 0 0;">{root.description}</p>}
+                  <p class="muted" style="font-size: 13px; margin: 8px 0 0;">
+                    {kids.length} sub-categor{kids.length === 1 ? 'y' : 'ies'} · {directCourses.length} course{directCourses.length === 1 ? '' : 's'}
+                  </p>
+                </div>
+              </div>
+
+              {kids.length > 0 && (
+                <div style="margin-top: 16px; padding-top: 16px; border-top: 1px solid #E5E9F0;">
+                  <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px;">
+                    {kids.map((child: any) => {
+                      const childCourses = coursesByCategory[child.id] ?? [];
+                      return (
+                        <a href={`/catalog/categories/${child.slug}`} class="card" style="display: block; color: inherit; padding: 14px;">
+                          <strong style="font-size: 15px;">↳ {child.title}</strong>
+                          {child.description && <p class="muted" style="margin: 6px 0 0; font-size: 13px;">{child.description}</p>}
+                          <p class="muted" style="margin: 8px 0 0; font-size: 12px;">{childCourses.length} course{childCourses.length === 1 ? '' : 's'}</p>
+                        </a>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {directCourses.length > 0 && (
+                <div style="margin-top: 16px; padding-top: 16px; border-top: 1px solid #E5E9F0;">
+                  <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px;">
+                    {directCourses.map((c: any) => (
+                      <a href={`/c/${c.slug}`} class="card" style="display: block; color: inherit; padding: 14px;">
+                        <span class={`tag tag-${c.content_type}`}>{c.content_type}</span>
+                        <h3 style="margin: 8px 0 0; font-size: 16px;">{c.title}</h3>
+                        {c.description && <p class="muted" style="margin: 6px 0 0; font-size: 13px;">{c.description}</p>}
+                        {c.duration_minutes && <p class="muted" style="font-size: 12px; margin: 6px 0 0;">~{c.duration_minutes} min</p>}
+                      </a>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {kids.length === 0 && directCourses.length === 0 && (
+                <p class="muted" style="margin: 16px 0 0; font-size: 14px;">Empty category.</p>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    )}
+
+    {!error && uncategorized.length > 0 && (
+      <div class="card" style="margin-top: 24px;">
+        <h2 style="margin-top: 0;">Uncategorized</h2>
+        <p class="muted" style="font-size: 13px;">These courses haven't been placed into a category yet.</p>
+        <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; margin-top: 16px;">
+          {uncategorized.map((c: any) => (
+            <a href={`/c/${c.slug}`} class="card" style="display: block; color: inherit; padding: 14px;">
+              <span class={`tag tag-${c.content_type}`}>{c.content_type}</span>
+              <h3 style="margin: 8px 0 0; font-size: 16px;">{c.title}</h3>
+              {c.description && <p class="muted" style="margin: 6px 0 0; font-size: 13px;">{c.description}</p>}
+              {c.duration_minutes && <p class="muted" style="font-size: 12px; margin: 6px 0 0;">~{c.duration_minutes} min</p>}
+            </a>
+          ))}
+        </div>
+      </div>
+    )}
   </section>
 </Layout>

@@ -16,6 +16,7 @@ export const POST: APIRoute = async (ctx) => {
   const widget_key = get('widget_key');
   const asset_url = get('asset_url');
   const duration_str = get('duration_minutes');
+  const categoryRaw = get('category_id');
   const is_published = form.get('is_published') === '1';
 
   if (!slug || !title || !content_type) {
@@ -35,7 +36,9 @@ export const POST: APIRoute = async (ctx) => {
     .insert({
       slug, title, description: description || null, content_type,
       widget_key: widget_key || null, asset_url: asset_url || null,
-      duration_minutes, is_published,
+      duration_minutes,
+      category_id: categoryRaw || null,
+      is_published,
     })
     .select('id')
     .single();

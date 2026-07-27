@@ -1,0 +1,158 @@
+---
+import Layout from '../../../layouts/Layout.astro';
+import { makeBrowserClient } from '../../../lib/supabase';
+
+const { slug } = Astro.params;
+if (!slug) return new Response('missing slug', { status: 400 });
+
+const client = makeBrowserClient(Astro);
+
+// Load the requested category.
+const { data: category, error: catErr } = await client
+  .from('lms_categories')
+  .select('*')
+  .eq('slug', slug)
+  .maybeSingle();
+
+if (catErr) return new Response(catErr.message, { status: 500 });
+if (!category) return new Response('not found', { status: 404 });
+
+// Siblings (same parent) for navigation.
+const siblingsQuery = category.parent_id
+  ? client.from('lms_categories').select('id, slug, title').eq('parent_id', category.parent_id).order('display_order').order('title')
+  : client.from('lms_categories').select('id, slug, title').is('parent_id', null).order('display_order').order('title');
+const { data: siblings } = await siblingsQuery;
+
+// Parent (for breadcrumbs).
+let parent: any = null;
+if (category.parent_id) {
+  const { data: p } = await client
+    .from('lms_categories')
+    .select('id, slug, title')
+    .eq('id', category.parent_id)
+    .maybeSingle();
+  parent = p;
+}
+
+// Children (only relevant for roots).
+const childrenQuery = category.parent_id
+  ? Promise.resolve({ data: [] })
+  : client.from('lms_categories').select('id, slug, title, description').eq('parent_id', category.id).order('display_order').order('title');
+const { data: children } = await childrenQuery;
+
+// Courses directly in this category.
+const { data: directCourses } = await client
+  .from('lms_courses')
+  .select('id, slug, title, description, content_type, duration_minutes')
+  .eq('category_id', category.id)
+  .eq('is_published', true)
+  .order('created_at', { ascending: false });
+
+// If this is a root, also fetch courses from all its children.
+let inheritedCourses: any[] = [];
+if (!category.parent_id && children && children.length > 0) {
+  const childIds = children.map((c: any) => c.id);
+  const { data: inherited } = await client
+    .from('lms_courses')
+    .select('id, slug, title, description, content_type, duration_minutes, category_id')
+    .in('category_id', childIds)
+    .eq('is_published', true)
+    .order('created_at', { ascending: false });
+  inheritedCourses = inherited ?? [];
+}
+
+// Build a map from category_id to category for breadcrumbs on inherited cards.
+const childMap: Record<string, any> = {};
+for (const c of children ?? []) childMap[c.id] = c;
+---
+<Layout title={category.title}>
+  <section class="container">
+    <nav style="font-size: 13px; color: var(--text-muted); margin-bottom: 16px;">
+      <a href="/catalog" style="color: var(--text-muted);">Catalog</a>
+      {parent && (
+        <>
+          {' / '}
+          <a href={`/catalog/categories/${parent.slug}`} style="color: var(--text-muted);">{parent.title}</a>
+        </>
+      )}
+      {' / '}<strong>{category.title}</strong>
+    </nav>
+
+    <h1>{category.title}</h1>
+    {category.description && <p class="muted">{category.description}</p>}
+
+    {!category.parent_id && children && children.length > 0 && (
+      <div style="margin-top: 24px;">
+        <h2>Sub-categories</h2>
+        <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 12px; margin-top: 12px;">
+          {children.map((child: any) => (
+            <a href={`/catalog/categories/${child.slug}`} class="card" style="display: block; color: inherit; padding: 14px;">
+              <strong style="font-size: 15px;">↳ {child.title}</strong>
+              {child.description && <p class="muted" style="margin: 6px 0 0; font-size: 13px;">{child.description}</p>}
+            </a>
+          ))}
+        </div>
+      </div>
+    )}
+
+    {(!directCourses || directCourses.length === 0) && (!inheritedCourses || inheritedCourses.length === 0) && (
+      <div class="card" style="margin-top: 24px;">
+        <p class="muted" style="margin: 0;">No courses in this category yet.</p>
+      </div>
+    )}
+
+    {(directCourses && directCourses.length > 0) && (
+      <div style="margin-top: 24px;">
+        {!category.parent_id && children && children.length > 0 ? (
+          <h2>Courses directly in {category.title}</h2>
+        ) : (
+          <h2>Courses</h2>
+        )}
+        <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; margin-top: 12px;">
+          {directCourses.map((c: any) => (
+            <a href={`/c/${c.slug}`} class="card" style="display: block; color: inherit;">
+              <span class={`tag tag-${c.content_type}`}>{c.content_type}</span>
+              <h3 style="margin: 8px 0 0; font-size: 16px;">{c.title}</h3>
+              {c.description && <p class="muted" style="margin: 6px 0 0; font-size: 13px;">{c.description}</p>}
+              {c.duration_minutes && <p class="muted" style="font-size: 12px; margin: 6px 0 0;">~{c.duration_minutes} min</p>}
+            </a>
+          ))}
+        </div>
+      </div>
+    )}
+
+    {!category.parent_id && inheritedCourses && inheritedCourses.length > 0 && (
+      <div style="margin-top: 32px;">
+        <h2>Courses in sub-categories</h2>
+        <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; margin-top: 12px;">
+          {inheritedCourses.map((c: any) => (
+            <a href={`/c/${c.slug}`} class="card" style="display: block; color: inherit;">
+              <span class={`tag tag-${c.content_type}`}>{c.content_type}</span>
+              <h3 style="margin: 8px 0 0; font-size: 16px;">{c.title}</h3>
+              {childMap[c.category_id] && (
+                <p class="muted" style="font-size: 12px; margin: 4px 0 0;">↳ {childMap[c.category_id].title}</p>
+              )}
+              {c.description && <p class="muted" style="margin: 6px 0 0; font-size: 13px;">{c.description}</p>}
+              {c.duration_minutes && <p class="muted" style="font-size: 12px; margin: 6px 0 0;">~{c.duration_minutes} min</p>}
+            </a>
+          ))}
+        </div>
+      </div>
+    )}
+
+    {siblings && siblings.length > 1 && (
+      <div style="margin-top: 48px; padding-top: 24px; border-top: 1px solid #E5E9F0;">
+        <h3 style="font-size: 14px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted);">
+          More {parent ? `in ${parent.title}` : 'categories'}
+        </h3>
+        <div style="display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px;">
+          {siblings.map((s: any) => (
+            s.id === category.id ? null : (
+              <a href={`/catalog/categories/${s.slug}`} class="btn btn-secondary" style="font-size: 13px;">{s.title}</a>
+            )
+          ))}
+        </div>
+      </div>
+    )}
+  </section>
+</Layout>
