@@ -13,6 +13,7 @@
     "@astrojs/cloudflare": "^11.0.0",
     "@supabase/supabase-js": "^2.45.0",
     "astro": "^4.16.0",
+    "fflate": "^0.8.2",
     "pdf-lib": "^1.17.1"
   },
   "devDependencies": {

@@ -77,14 +77,27 @@ if (workshop) {
 
     <div class="card" style="margin-top: 8px; padding: 0; overflow: hidden;">
       {course.content_type === 'elearning' && course.widget_key && (
-        <iframe
-          id="cynex-widget-frame"
-          data-course-id={course.id}
-          data-course-slug={course.slug}
-          src={`https://elearning-test.jhl-burke.workers.dev/widgets/${course.widget_key}/index.html`}
-          style="width: 100%; min-height: 600px; border: 0;"
-          allow="clipboard-write"
-        ></iframe>
+        course.widget_key.startsWith('rise:') && course.asset_url ? (
+          <iframe
+            id="cynex-widget-frame"
+            data-course-id={course.id}
+            data-course-slug={course.slug}
+            data-content-origin={new URL(course.asset_url).origin}
+            src={course.asset_url}
+            style="width: 100%; min-height: 600px; border: 0;"
+            allow="clipboard-write"
+          ></iframe>
+        ) : (
+          <iframe
+            id="cynex-widget-frame"
+            data-course-id={course.id}
+            data-course-slug={course.slug}
+            data-content-origin="elearning-test.jhl-burke.workers.dev"
+            src={`https://elearning-test.jhl-burke.workers.dev/widgets/${course.widget_key}/index.html`}
+            style="width: 100%; min-height: 600px; border: 0;"
+            allow="clipboard-write"
+          ></iframe>
+        )
       )}
       {course.content_type === 'pdf' && course.asset_url && (
         <iframe src={course.asset_url} style="width: 100%; min-height: 800px; border: 0;"></iframe>
@@ -178,7 +191,11 @@ if (workshop) {
         let inFlight = false;
         window.addEventListener('message', async (event) => {
           log('msg event — origin=' + event.origin + ' data=' + JSON.stringify(event.data));
-          if (!event.origin || !event.origin.endsWith('.workers.dev')) return;
+          if (!event.origin || !event.origin.endsWith('.workers.dev')) {
+            // Allow Rise content hosted at the Supabase Storage origin to post completion messages.
+            const allowed = frame.getAttribute('data-content-origin');
+            if (!allowed || event.origin !== allowed) return;
+          }
           if (!event.data || event.data.type !== 'complete') return;
           if (inFlight) return;
           inFlight = true;

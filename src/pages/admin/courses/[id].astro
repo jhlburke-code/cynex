@@ -28,6 +28,15 @@ const { data: categories } = await client
 const url = Astro.url;
 const errorMsg = url.searchParams.get('error');
 const savedFlag = url.searchParams.get('saved') === '1';
+const riseError = url.searchParams.get('rise_error');
+const riseUploaded = url.searchParams.get('rise_uploaded') === '1';
+const riseFiles = parseInt(url.searchParams.get('files') ?? '0', 10);
+const riseSkipped = parseInt(url.searchParams.get('skipped') ?? '0', 10);
+const supabaseUrl = (Astro.locals.runtime.env.SUPABASE_URL as string | undefined) ?? '';
+const riseAssetUrl = supabaseUrl
+  ? `${supabaseUrl.replace(/\/+$/, '')}/storage/v1/object/public/rise-content/${course.slug}/index.html`
+  : '';
+const isRise = (course.widget_key ?? '').startsWith('rise:');
 ---
 <AdminLayout title={`Edit: ${course.title}`} active="courses">
   <a href="/admin/courses" class="muted" style="font-size: 14px;">← Courses</a>
@@ -42,8 +51,89 @@ const savedFlag = url.searchParams.get('saved') === '1';
       <strong>✓ Saved.</strong>
     </div>
   )}
+  {riseError && (
+    <div class="card" style="background: #FEE; border-color: #B71C1C; margin: 16px 0;">
+      <strong>Rise upload failed:</strong> {riseError}
+    </div>
+  )}
+  {riseUploaded && (
+    <div class="card" style="background: #E8F5E9; border-color: #1B5E20; margin: 16px 0;">
+      <strong>✓ Rise content uploaded.</strong>
+      {riseFiles} files in <code>rise-content/{course.slug}/</code>
+      {riseSkipped > 0 && <> ({riseSkipped} metadata entries skipped)</>}.
+      <div style="margin-top: 8px;">
+        <a href={riseAssetUrl} target="_blank" rel="noopener">Open index.html →</a>
+        &nbsp;·&nbsp;
+        <a href={`/learn/${course.slug}`} target="_blank" rel="noopener">Preview as learner →</a>
+      </div>
+    </div>
+  )}
 
   <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 24px; margin-top: 16px;">
+    <section class="card" style="margin-bottom: 24px;">
+      <h2 style="margin-top: 0; font-size: 18px;">Rise content <span class="muted" style="font-weight: 400; font-size: 13px;">— Web export upload</span></h2>
+      <p class="muted" style="font-size: 14px; margin: 0 0 12px;">
+        In Rise: <em>Publish → Web</em>. Then drop the export folder here, or a ZIP of it.
+        Files are pushed to <code>rise-content/{course.slug}/</code> in Supabase Storage and
+        <code>asset_url</code> + <code>widget_key</code> are set automatically.
+      </p>
+
+      <form
+        id="rise-upload-form"
+        method="POST"
+        action={`/api/admin/courses/${course.id}/upload-rise`}
+        enctype="multipart/form-data"
+        style="border: 2px dashed #D0D5DD; border-radius: 8px; padding: 24px; background: var(--bg-3);"
+      >
+        <div id="rise-dropzone" style="text-align: center; padding: 24px; cursor: pointer;">
+          <div style="font-size: 15px; font-weight: 600;">Drop your Rise export here</div>
+          <div class="muted" style="font-size: 13px; margin-top: 6px;">
+            or click to pick a folder — or pick a .zip file
+          </div>
+          <div class="muted" style="font-size: 12px; margin-top: 12px;">
+            Target: <code style="user-select: all;">rise-content/{course.slug}/</code>
+          </div>
+        </div>
+
+        <input
+          type="file"
+          id="rise-folder-input"
+          name="files"
+          webkitdirectory
+          multiple
+          style="display: none;"
+        />
+        <input
+          type="file"
+          id="rise-zip-input"
+          name="zip"
+          accept=".zip,application/zip"
+          style="display: none;"
+        />
+
+        <div id="rise-status" style="margin-top: 12px; display: none;"></div>
+
+        <div style="display: flex; gap: 8px; margin-top: 16px;">
+          <button type="button" id="rise-pick-folder" class="btn btn-secondary">Pick folder…</button>
+          <button type="button" id="rise-pick-zip" class="btn btn-secondary">Pick .zip…</button>
+          <button type="submit" id="rise-submit" class="btn btn-primary" disabled>Upload</button>
+        </div>
+      </form>
+
+      {isRise && course.asset_url && (
+        <div style="margin-top: 16px; padding: 12px; background: var(--bg-3); border-radius: 6px; font-size: 13px;">
+          <strong>Currently hosted:</strong>
+          <div style="margin-top: 6px; font-family: ui-monospace, monospace; word-break: break-all;">
+            <a href={course.asset_url} target="_blank" rel="noopener">{course.asset_url}</a>
+          </div>
+          <div class="muted" style="margin-top: 6px;">
+            Re-uploading overwrites files at the same paths. To start over, delete files manually in
+            Supabase Storage.
+          </div>
+        </div>
+      )}
+    </section>
+
     <form method="POST" action={`/api/admin/courses/${course.id}`} class="card">
       <input type="hidden" name="_method" value="PATCH" />
 
@@ -125,4 +215,118 @@ const savedFlag = url.searchParams.get('saved') === '1';
       </div>
     </div>
   </div>
+
+  <script is:inline>
+    (() => {
+      const form = document.getElementById('rise-upload-form');
+      const dz = document.getElementById('rise-dropzone');
+      const folderInput = document.getElementById('rise-folder-input');
+      const zipInput = document.getElementById('rise-zip-input');
+      const pickFolder = document.getElementById('rise-pick-folder');
+      const pickZip = document.getElementById('rise-pick-zip');
+      const submit = document.getElementById('rise-submit');
+      const status = document.getElementById('rise-status');
+      if (!form || !dz || !folderInput || !zipInput || !pickFolder || !pickZip || !submit || !status) return;
+
+      let mode = null; // 'folder' | 'zip'
+
+      const showStatus = (text, kind) => {
+        status.style.display = 'block';
+        const bg = kind === 'error' ? '#FEE' : kind === 'success' ? '#E8F5E9' : '#EEF2F7';
+        const fg = kind === 'error' ? '#B71C1C' : kind === 'success' ? '#1B5E20' : '#1B3A6B';
+        status.innerHTML = '<div style="padding: 10px; background:' + bg + '; color:' + fg + '; border-radius: 6px; font-size: 14px;">' + text + '</div>';
+      };
+
+      const setEnabled = () => {
+        submit.disabled = !(folderInput.files.length > 0 || zipInput.files.length > 0);
+      };
+
+      const resetInputs = () => {
+        folderInput.value = '';
+        zipInput.value = '';
+        setEnabled();
+      };
+
+      const summarise = (files) => {
+        const n = files.length;
+        const bytes = Array.from(files).reduce((s, f) => s + f.size, 0);
+        const mb = (bytes / 1024 / 1024).toFixed(2);
+        return n + ' file' + (n === 1 ? '' : 's') + ' · ' + mb + ' MB';
+      };
+
+      const wireFolder = () => {
+        mode = 'folder';
+        const files = folderInput.files;
+        if (files.length > 0) {
+          showStatus('Folder picked: ' + summarise(files), 'info');
+        } else {
+          status.style.display = 'none';
+        }
+        // Clear the other input
+        zipInput.value = '';
+        setEnabled();
+      };
+
+      const wireZip = () => {
+        mode = 'zip';
+        const files = zipInput.files;
+        if (files.length > 0) {
+          showStatus('ZIP picked: ' + summarise(files), 'info');
+        } else {
+          status.style.display = 'none';
+        }
+        folderInput.value = '';
+        setEnabled();
+      };
+
+      pickFolder.addEventListener('click', () => folderInput.click());
+      pickZip.addEventListener('click', () => zipInput.click());
+      dz.addEventListener('click', (e) => {
+        if (e.target.closest('button')) return;
+        // Default: open folder picker.
+        folderInput.click();
+      });
+      folderInput.addEventListener('change', wireFolder);
+      zipInput.addEventListener('change', wireZip);
+
+      // Drag-and-drop.
+      ['dragenter', 'dragover'].forEach((ev) => {
+        dz.addEventListener(ev, (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          dz.style.background = '#E0E7FF';
+          dz.style.borderColor = '#1B3A6B';
+        });
+      });
+      ['dragleave', 'drop'].forEach((ev) => {
+        dz.addEventListener(ev, (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          dz.style.background = '';
+          dz.style.borderColor = '';
+        });
+      });
+      dz.addEventListener('drop', (e) => {
+        const items = e.dataTransfer && e.dataTransfer.items ? Array.from(e.dataTransfer.items) : [];
+        const fileList = e.dataTransfer && e.dataTransfer.files ? Array.from(e.dataTransfer.files) : [];
+        // If a single .zip was dropped, route to zipInput.
+        if (fileList.length === 1 && /\.zip$/i.test(fileList[0].name) && fileList[0].type === '' || fileList[0].type === 'application/zip') {
+          const dt = new DataTransfer();
+          dt.items.add(fileList[0]);
+          zipInput.files = dt.files;
+          wireZip();
+          return;
+        }
+        // Otherwise treat as folder upload — folder picker cannot be primed programmatically,
+        // so we fall back to "click to pick folder" guidance.
+        showStatus('Drop a folder is not supported by your browser — click "Pick folder…" instead, or drop a .zip file.', 'error');
+      });
+
+      form.addEventListener('submit', (e) => {
+        submit.disabled = true;
+        submit.textContent = 'Uploading…';
+        showStatus('Uploading bundle — may take a moment for large folders…', 'info');
+      });
+    })();
+  </script>
 </AdminLayout>
