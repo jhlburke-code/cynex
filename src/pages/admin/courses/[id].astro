@@ -19,6 +19,12 @@ const { data: course, error } = await client
 
 if (error || !course) return new Response('not found', { status: 404 });
 
+const { data: categories } = await client
+  .from('lms_categories')
+  .select('id, slug, title, parent_id')
+  .order('display_order')
+  .order('title');
+
 const url = Astro.url;
 const errorMsg = url.searchParams.get('error');
 const savedFlag = url.searchParams.get('saved') === '1';

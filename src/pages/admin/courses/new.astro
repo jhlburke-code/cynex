@@ -10,7 +10,7 @@ const client = makeAuthenticatedClient(Astro);
 
 const { data: categories } = await client
   .from('lms_categories')
-  .select('id, slug, title, parent_id, lms_categories!parent_id ( title )')
+  .select('id, slug, title, parent_id')
   .order('display_order')
   .order('title');
 
