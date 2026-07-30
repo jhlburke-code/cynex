@@ -82,7 +82,7 @@ if (workshop) {
             id="cynex-widget-frame"
             data-course-id={course.id}
             data-course-slug={course.slug}
-            data-content-origin={new URL(course.asset_url).origin}
+            data-content-origin={new URL(course.asset_url, Astro.url).origin}
             src={course.asset_url}
             style="width: 100%; min-height: 600px; border: 0;"
             allow="clipboard-write"
