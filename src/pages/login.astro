@@ -27,8 +27,9 @@ const sent = url.searchParams.get('sent');
       <div class="card" style="background: var(--red-soft); border-color: var(--red); margin-top: 16px;">
         {error === 'invalid' && <p>We couldn't find that link. Try requesting a fresh one below.</p>}
         {error === 'name_required' && <p>Please enter your full name (at least 2 characters).</p>}
+        {error === 'consent_required' && <p>Please tick the consent checkbox (we need to record your agreement to the privacy notice before sending the link).</p>}
         {error === 'config' && <p>Auth isn't configured yet. Operator: set Supabase env vars on the deployment.</p>}
-        {error !== 'invalid' && error !== 'config' && error !== 'name_required' && <p>Something went wrong ({error}). Try again.</p>}
+        {error !== 'invalid' && error !== 'config' && error !== 'name_required' && error !== 'consent_required' && <p>Something went wrong ({error}). Try again.</p>}
       </div>
     )}
 
@@ -65,8 +66,20 @@ const sent = url.searchParams.get('sent');
         />
       </label>
       <input type="hidden" name="next" value={next} />
-      <button type="submit" class="btn btn-primary" style="width: 100%;">Send magic link</button>
-      <p class="muted" style="margin: 12px 0 0; font-size: 12px;">Your name appears on completion certificates and in the admin user list.</p>
+      <label style="display: flex; align-items: flex-start; gap: 8px; margin: 4px 0 12px; font-size: 13px; line-height: 1.5; color: #0F2347; cursor: pointer;">
+        <input type="checkbox" name="consent" id="consent" required style="margin: 2px 0 0; flex-shrink: 0; cursor: pointer;" />
+        <span>I have read the privacy notice above and consent to the processing of my personal data as described (Art. 6(1)(a) GDPR).</span>
+      </label>
+      <button type="submit" id="submit-btn" class="btn btn-primary" style="width: 100%;" disabled>Send magic link</button>
+      <p class="muted" style="margin: 12px 0 0; font-size: 12px;">Your name appears on completion certificates and in the admin user list. The consent record (timestamp, IP, user-agent, text version) is stored on your profile for accountability (Art. 7(1) GDPR).</p>
     </form>
+
+    <script is:inline>
+      const box = document.getElementById('consent');
+      const btn = document.getElementById('submit-btn');
+      if (box && btn) {
+        box.addEventListener('change', () => { btn.disabled = !box.checked; });
+      }
+    </script>
   </section>
 </Layout>

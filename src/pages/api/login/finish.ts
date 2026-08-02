@@ -19,6 +19,10 @@ export const POST: APIRoute = async (ctx) => {
   const code = typeof payload.code === 'string' ? payload.code : '';
   const next = typeof payload.next === 'string' && payload.next.startsWith('/') ? payload.next : '/me';
   const fullNameForm = typeof payload.full_name === 'string' ? normalizeName(payload.full_name) : null;
+  const consentAt = typeof payload.consent_at === 'string' && payload.consent_at ? payload.consent_at : null;
+  const consentTextVersion = typeof payload.consent_text_version === 'string' && payload.consent_text_version ? payload.consent_text_version : null;
+  const ipAtConsent = typeof payload.ip_at_consent === 'string' && payload.ip_at_consent ? payload.ip_at_consent : null;
+  const userAgentAtConsent = typeof payload.user_agent_at_consent === 'string' && payload.user_agent_at_consent ? payload.user_agent_at_consent : null;
 
   if (!access_token && !code) return json({ ok: false, message: 'Missing access_token or code' }, 400);
 
@@ -37,37 +41,56 @@ export const POST: APIRoute = async (ctx) => {
 
   await setSessionCookies(ctx, { access_token: resolvedAccess, refresh_token: resolvedRefresh });
 
-  // Sync full_name to lms_profiles. We have an authenticated context now
-  // (cookies are set above), so we can resolve the user_id via the access
-  // token and update the profile row directly with the service-role client.
-  if (fullNameForm && resolvedAccess) {
+  // Sync full_name + consent evidence to lms_profiles. We have an authenticated
+  // context now (cookies are set above), so we can resolve the user_id via the
+  // access token and update the profile row directly with the service-role
+  // client. Consent cols are always written when consent_at is present (the
+  // checkbox is required at the form, so consent_at is always set on a
+  // successful submission); the consent record always reflects the latest
+  // accepted text + IP/UA.
+  if (resolvedAccess) {
     try {
       const { data: userData, error: userErr } = await client.auth.getUser(resolvedAccess);
       const userId = userData?.user?.id;
       if (!userErr && userId) {
         const admin = makeServiceRoleClient(ctx);
         if (admin) {
-          const { data: profile } = await admin
-            .from('lms_profiles')
-            .select('full_name')
-            .eq('user_id', userId)
-            .maybeSingle();
-          const currentName = (profile?.full_name ?? '').trim() || null;
-          if (!currentName || currentName.toLowerCase() !== fullNameForm.toLowerCase()) {
-            // Upsert so this also handles the rare case where the trigger
-            // hasn't created the row yet (e.g. invite-then-immediate-signin).
+          if (fullNameForm) {
+            const { data: profile } = await admin
+              .from('lms_profiles')
+              .select('full_name')
+              .eq('user_id', userId)
+              .maybeSingle();
+            const currentName = (profile?.full_name ?? '').trim() || null;
+            if (!currentName || currentName.toLowerCase() !== fullNameForm.toLowerCase()) {
+              // Upsert so this also handles the rare case where the trigger
+              // hasn't created the row yet (e.g. invite-then-immediate-signin).
+              await admin
+                .from('lms_profiles')
+                .upsert(
+                  { user_id: userId, full_name: fullNameForm, email: userData.user.email ?? undefined },
+                  { onConflict: 'user_id' },
+                );
+            }
+          }
+          if (consentAt) {
+            // Always overwrite the consent record — the user just ticked the
+            // checkbox at the login form, so this is the freshest consent.
             await admin
               .from('lms_profiles')
-              .upsert(
-                { user_id: userId, full_name: fullNameForm, email: userData.user.email ?? undefined },
-                { onConflict: 'user_id' },
-              );
+              .update({
+                consent_at: consentAt,
+                consent_text_version: consentTextVersion,
+                ip_at_consent: ipAtConsent,
+                user_agent_at_consent: userAgentAtConsent,
+              })
+              .eq('user_id', userId);
           }
         }
       }
     } catch (e) {
       // Non-fatal: cookies are set, profile write can be retried on next signin.
-      console.error('profile full_name sync failed:', (e as Error).message);
+      console.error('profile sync failed:', (e as Error).message);
     }
   }
 

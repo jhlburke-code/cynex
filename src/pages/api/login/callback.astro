@@ -58,7 +58,14 @@ const next = url.searchParams.get('next') ?? '/me';
         const r = await fetch('/api/login/finish', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ access_token, refresh_token, code, next, full_name: initialFullName }),
+          body: JSON.stringify({
+            access_token, refresh_token, code, next,
+            full_name: initialFullName,
+            consent_at: initialConsentAt,
+            consent_text_version: initialConsentTextVersion,
+            ip_at_consent: initialIpAtConsent,
+            user_agent_at_consent: initialUserAgentAtConsent,
+          }),
         });
         const j = await r.json();
         log('6. finish status=' + r.status + ' body=' + JSON.stringify(j));
