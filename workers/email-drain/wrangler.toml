@@ -12,7 +12,7 @@ enabled = true
 # Plain text env vars (non-secret)
 [vars]
 EMAIL_FROM_NAME = "Cynex"
-EMAIL_FROM_ADDRESS = "onboarding@resend.dev"
+EMAIL_FROM_ADDRESS = "no-reply@johannesburke.com"
 
 # Secrets — set via:
 #   wrangler secret put SUPABASE_URL
