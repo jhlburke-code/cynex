@@ -20,6 +20,10 @@ const next = url.searchParams.get('next') ?? '/me';
   <script is:inline define:vars={{ next }}>
     const initialUrl = new URL(window.location.href);
     const initialFullName = initialUrl.searchParams.get('full_name') || '';
+    const initialConsentAt = initialUrl.searchParams.get('consent_at') || '';
+    const initialConsentTextVersion = initialUrl.searchParams.get('consent_text_version') || '';
+    const initialIpAtConsent = initialUrl.searchParams.get('ip_at_consent') || '';
+    const initialUserAgentAtConsent = initialUrl.searchParams.get('user_agent_at_consent') || '';
     (async () => {
       const log = (m) => {
         const el = document.getElementById('cynex-callback-debug');
@@ -47,6 +51,8 @@ const next = url.searchParams.get('next') ?? '/me';
         log('3c. refresh_token=' + (refresh_token ? refresh_token.slice(0, 12) + '…' : '(empty)'));
         log('3d. code=' + (code ? code.slice(0, 12) + '…' : '(empty)'));
         log('3e. full_name=' + (initialFullName || '(empty)'));
+        log('3f. consent_at=' + (initialConsentAt || '(empty)'));
+        log('3g. consent_text_version=' + (initialConsentTextVersion || '(empty)'));
 
         if (!access_token && !code) {
           log('4. FAIL: no tokens in URL');
