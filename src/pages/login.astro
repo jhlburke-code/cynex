@@ -12,6 +12,17 @@ const sent = url.searchParams.get('sent');
     <h1 style="margin-top: 16px;">Sign in</h1>
     <p class="muted">Enter your full name and work email — we'll send you a magic link.</p>
 
+    <aside class="card" style="background: #F4F7FA; border-color: #1B3A6B; margin-top: 16px; padding: 16px 20px; font-size: 13px; line-height: 1.55; color: #0F2347;">
+      <div style="font-weight: 700; color: #1B3A6B; margin-bottom: 8px; font-size: 14px;">Privacy & data on Cynex</div>
+      <p style="margin: 0 0 8px;"><strong>Who runs it:</strong> John Burke, Karlsruhe (DE). Supervisory authority: LfDI BW.</p>
+      <p style="margin: 0 0 8px;"><strong>What we collect:</strong> your name, email, IP, and your enrollments, completions, and certificates.</p>
+      <p style="margin: 0 0 8px;"><strong>Why:</strong> to give you access to learning content and issue certificates. Lawful basis: your consent (Art. 6(1)(a) GDPR).</p>
+      <p style="margin: 0 0 8px;"><strong>Who sees it:</strong> Cloudflare (hosting), Supabase (data), Resend (email), GitHub (widget code). All under EU SCCs + the EU-US Data Privacy Framework. Data may transit non-EU POPs.</p>
+      <p style="margin: 0 0 8px;"><strong>How long:</strong> while your account is active + 24 months of inactivity, then anonymised.</p>
+      <p style="margin: 0 0 8px;"><strong>Your rights:</strong> access, rectification, erasure, portability, restriction, objection, complaint to LfDI BW.</p>
+      <p style="margin: 0;"><strong>No automated decisions.</strong> No tracking, no cookies that require consent.</p>
+    </aside>
+
     {error && (
       <div class="card" style="background: var(--red-soft); border-color: var(--red); margin-top: 16px;">
         {error === 'invalid' && <p>We couldn't find that link. Try requesting a fresh one below.</p>}
