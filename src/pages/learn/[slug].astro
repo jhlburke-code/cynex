@@ -210,7 +210,7 @@ if (workshop) {
             if (j.ok) {
               show('Course completed. We will email you a certificate link shortly.');
             } else {
-              show('Couldn\\'t save completion: ' + (j.message || 'unknown'), false);
+              show("Couldn't save completion: " + (j.message || 'unknown'), false);
             }
           } catch (e) {
             show('Network error saving completion.', false);
