@@ -77,7 +77,7 @@ if (workshop) {
 
     <div class="card" style="margin-top: 8px; padding: 0; overflow: hidden;">
       {course.content_type === 'elearning' && course.widget_key && (
-        course.widget_key.startsWith('rise:') && course.asset_url ? (
+        course.asset_url ? (
           <iframe
             id="cynex-widget-frame"
             data-course-id={course.id}
