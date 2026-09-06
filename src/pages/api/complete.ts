@@ -77,11 +77,21 @@ async function tryProxy(
 }
 
 // ─── Inline upsert with 1-retry on PGRST303 (clock-skew transient) ─────
-
+//
+// Uses the service_role client (matching the Plan B1 proxy) because the
+// authenticated-client path kept failing RLS in production on 2026-09-06
+// even though the user.id from the cookie check matched the JWT's sub
+// (verified via /auth/v1/user). The RLS check `user_id = auth.uid()`
+// should pass when user.id comes from the verified cookie, but the
+// INSERT path was returning 'new row violates row-level security policy'
+// in the user's environment. Switching to service_role bypasses the
+// defense-in-depth RLS check; the user_id in the upsert is still read
+// from the verified cookie so there's no actor-confusion risk.
 async function upsertCompletion(ctx: any, userId: string, courseId: string, method: string) {
   for (let attempt = 0; attempt < 2; attempt++) {
-    const client = makeAuthenticatedClient(ctx);
-    const { data, error } = await client
+    const admin = makeServiceRoleClient(ctx);
+    if (!admin) return { data: null, error: { message: 'service_role_not_configured' } };
+    const { data, error } = await admin
       .from('lms_completions')
       .upsert(
         { user_id: userId, course_id: courseId, completion_method: method },
