@@ -46,7 +46,13 @@ const showEmail = !!profile?.full_name?.trim();
     {enrollments && enrollments.length > 0 && (
       <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 16px; margin-top: 24px;">
         {enrollments.map((e: any) => (
-          <a href={`/learn/${e.course.slug}`} class="card" style="display: block; color: inherit;">
+          <a href={`/learn/${e.course.slug}`} class="card" style={`display: block; color: inherit; position: relative; ${e.status === 'completed' ? 'background: #E8F5E9; border-color: #137333;' : ''}`}>
+            {e.status === 'completed' && (
+              <span style="position: absolute; top: 12px; right: 12px; display: inline-flex; align-items: center; gap: 4px; padding: 3px 9px; border-radius: 999px; background: #137333; color: #FFFFFF; font-size: 11px; font-weight: 800; letter-spacing: .04em; text-transform: uppercase;" title="Completed">
+                <svg width="11" height="11" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                Done
+              </span>
+            )}
             <span class={`tag tag-${e.course.content_type}`}>{e.course.content_type}</span>
             <h2 style="margin-top: 12px;">{e.course.title}</h2>
             <p class="muted" style="font-size: 13px;">Enrolled {new Date(e.enrolled_at).toLocaleDateString()}</p>
