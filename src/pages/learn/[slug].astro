@@ -213,7 +213,11 @@ if (workshop) {
               show("Couldn't save completion: " + (j.message || 'unknown'), false);
             }
           } catch (e) {
-            show('Network error saving completion.', false);
+            // The completion may still have been written (the proxy often
+            // writes before this catch block fires). Don't show a hard
+            // error — the user can verify on /me.
+            show('Recording your completion\u2026 check <a href="/me" style="color: #1B3A6B; text-decoration: underline;">My learning</a> to confirm.', false);
+            console.warn('[cynex-learn] completion fetch threw; row may still be in DB.', e);
           } finally {
             inFlight = false;
           }
