@@ -114,23 +114,26 @@ export async function buildCertificatePdf(input: CertInput): Promise<Uint8Array>
 	}
 
 	// Header band — "C Y N E X" wordmark
-	page.drawText("C Y N E X", {
-		x: width / 2 - 110, y: height - 100,
+	const wordmark = "C Y N E X";
+	const wmWidth = timesBold.widthOfTextAtSize(wordmark, 56);
+	const wmX = (width - wmWidth) / 2 - 6;     // small left bias for optical centering
+	page.drawText(wordmark, {
+		x: wmX, y: height - 120,
 		size: 56, font: timesBold, color: COLOR.navy,
 	});
 	page.drawLine({
-		start: { x: width / 2 - 130, y: height - 115 },
-		end:   { x: width / 2 + 130, y: height - 115 },
+		start: { x: wmX - 20, y: height - 135 },
+		end:   { x: wmX + wmWidth + 20, y: height - 135 },
 		thickness: 2, color: COLOR.red,
 	});
-	page.drawText("certificate of completion", {
-		x: width / 2 - 92, y: height - 138,
+	page.drawText("Certificate of Completion", {
+		x: width / 2 - 92, y: height - 158,
 		size: 14, font: helvObl, color: COLOR.gray,
 	});
 
 	// Recipient label
 	page.drawText("this certifies that", {
-		x: width / 2 - 50, y: height - 200,
+		x: width / 2 - 50, y: height - 220,
 		size: 12, font: helvObl, color: COLOR.gray,
 	});
 
@@ -138,19 +141,19 @@ export async function buildCertificatePdf(input: CertInput): Promise<Uint8Array>
 	const name = (input.userName || input.userEmail).toUpperCase();
 	const nameWidth = helvBold.widthOfTextAtSize(name, 38);
 	page.drawText(name, {
-		x: (width - nameWidth) / 2, y: height - 260,
+		x: (width - nameWidth) / 2, y: height - 280,
 		size: 38, font: helvBold, color: COLOR.navy,
 	});
 	// Underline accent
 	page.drawLine({
-		start: { x: (width - nameWidth) / 2 - 10, y: height - 268 },
-		end:   { x: (width + nameWidth) / 2 + 10, y: height - 268 },
+		start: { x: (width - nameWidth) / 2 - 10, y: height - 288 },
+		end:   { x: (width + nameWidth) / 2 + 10, y: height - 288 },
 		thickness: 1, color: COLOR.gold,
 	});
 
 	// "has completed"
 	page.drawText("has successfully completed the course", {
-		x: width / 2 - 132, y: height - 300,
+		x: width / 2 - 132, y: height - 320,
 		size: 13, font: helvObl, color: COLOR.gray,
 	});
 
@@ -165,7 +168,7 @@ export async function buildCertificatePdf(input: CertInput): Promise<Uint8Array>
 	}
 	const finalCourseWidth = helvBold.widthOfTextAtSize(course, titleSize);
 	page.drawText(course, {
-		x: (width - finalCourseWidth) / 2, y: height - 340,
+		x: (width - finalCourseWidth) / 2, y: height - 360,
 		size: titleSize, font: helvBold, color: COLOR.redBright,
 	});
 
@@ -173,8 +176,8 @@ export async function buildCertificatePdf(input: CertInput): Promise<Uint8Array>
 	const dateStr = input.completedAt.toLocaleDateString("en-US", {
 		year: "numeric", month: "long", day: "numeric",
 	});
-	page.drawText(`on  ${dateStr.toLowerCase()}`, {
-		x: width / 2 - 90, y: height - 380,
+	page.drawText(`on  ${dateStr}`, {
+		x: width / 2 - 90, y: height - 400,
 		size: 14, font: helv, color: COLOR.gray,
 	});
 
@@ -184,14 +187,14 @@ export async function buildCertificatePdf(input: CertInput): Promise<Uint8Array>
 		thickness: 0.5, color: COLOR.gray,
 	});
 
-	// Footer: tagline + verification
-	page.drawText("\"Get to the chopper.\"", {
+	// Footer: signature + verification
+	page.drawText("Johannes Burke", {
 		x: 80, y: 78,
-		size: 11, font: helvObl, color: COLOR.red,
+		size: 12, font: helvBold, color: COLOR.navy,
 	});
-	page.drawText("— Predator (1987)", {
+	page.drawText("(Technology Enablement Architect)", {
 		x: 80, y: 60,
-		size: 9, font: helv, color: COLOR.gray,
+		size: 9, font: helvObl, color: COLOR.gray,
 	});
 
 	// Verification block (right side)
@@ -204,12 +207,6 @@ export async function buildCertificatePdf(input: CertInput): Promise<Uint8Array>
 			font: i === 0 ? helvBold : helv,
 			color: i === 0 ? COLOR.gray : COLOR.gray,
 		});
-	});
-
-	// Bottom: institution name
-	page.drawText("AIINOD", {
-		x: width / 2 - 22, y: 36,
-		size: 10, font: timesBold, color: COLOR.navy,
 	});
 
 	return await doc.save();
